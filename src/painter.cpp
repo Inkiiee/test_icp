@@ -1,4 +1,5 @@
 #include "painter.h"
+#include "slam_basic.h"
 #include "teleopt.hpp"
 
 #include <QDebug>
@@ -13,10 +14,11 @@ namespace rcl_painter{
     using namespace rcl_pose_graph;
     using namespace rcl_map_backend;
 
-    Painter::Painter(PoseGraph* pg, MapBackend* wm, MapBackend* lm, double r, QWidget *parent):QWidget(parent), pos_r{r}, pixmap(map_size_x, map_size_y), lader_pixmap(map_size_x, map_size_y), world_pixmap(map_size_x, map_size_y) {
+    Painter::Painter(PoseGraph* pg, MapBackend* wm, MapBackend* lm, double r, std::mutex* mtx, QWidget *parent):QWidget(parent), pos_r{r}, pixmap(map_size_x, map_size_y), lader_pixmap(map_size_x, map_size_y), world_pixmap(map_size_x, map_size_y) {
         pose_graph = pg;
         world_map = wm;
         local_map = lm;
+        shared_data_mutex = mtx;
 
         pixmap.fill(Qt::transparent);
         lader_pixmap.fill(Qt::transparent);
@@ -56,8 +58,15 @@ namespace rcl_painter{
         painter.setPen(pen);
 
         double min = -16, max = 16;
-        for(int i=0; i<static_cast<int>(pose_graph->getPoseCount()); i++){
-            auto p = pose_graph->getPose(i);
+        std::vector<rcl_slam_basic_type::RobotBasePose> poses;
+        if(shared_data_mutex){
+            std::lock_guard<std::mutex> lock(*shared_data_mutex);
+            int count = static_cast<int>(pose_graph->getPoseCount());
+            poses.reserve(count);
+            for(int i=0; i<count; i++)
+                poses.push_back(pose_graph->getPose(i));
+        }
+        for(const auto& p : poses){
             double mx = (p.tx - min) / (max - min) * map_size_x;
             double my = (-p.ty - min) / (max - min) * map_size_y;
             painter.drawPoint(mx, my);
@@ -76,6 +85,7 @@ namespace rcl_painter{
             double py = (-ry - min) / (max - min) * map_size_y;
             painter.drawPoint(px, py);
         }
+        update();
     }
 
     void Painter::drawWorldMap(){
@@ -87,13 +97,12 @@ namespace rcl_painter{
 
         double min = -16, max = 16;
         std::vector<double> x, y;
-        world_map->getPos(x, y, true);
-        for(size_t i=0; i<x.size(); i++){
-            double mx = (x[i] - min) / (max - min) * map_size_x;
-            double my = (-y[i] - min) / (max - min) * map_size_y;
-            painter.drawPoint(mx, my);
+        if(shared_data_mutex){
+            std::lock_guard<std::mutex> lock(*shared_data_mutex);
+            world_map->getPos(x, y, true);
+        } else {
+            world_map->getPos(x, y, true);
         }
-        local_map->getPos(x, y);
         for(size_t i=0; i<x.size(); i++){
             double mx = (x[i] - min) / (max - min) * map_size_x;
             double my = (-y[i] - min) / (max - min) * map_size_y;

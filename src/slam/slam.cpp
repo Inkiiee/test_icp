@@ -12,7 +12,7 @@ namespace rcl_slam{
     SlamSystem::SlamSystem(Bridge* b, double r, QObject* parent): QObject(parent), pos_r{r}, bridge{b} {
         backend = new ScanMatchBackend(bridge, pos_r, this);
         loop_detecter = new LoopDetecter(backend->getPoseGraph(), backend->getSubMaps(), backend->getSharedDataMutex(), this);
-        painter = new Painter(backend->getPoseGraph(), backend->getWorldMap(), backend->getLocalMap(), pos_r);
+        painter = new Painter(backend->getPoseGraph(), backend->getWorldMap(), backend->getLocalMap(), pos_r, backend->getSharedDataMutex());
 
         QObject::connect(
             loop_detecter, 

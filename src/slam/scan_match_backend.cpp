@@ -92,7 +92,7 @@ namespace rcl_scan_match_backend{
     }
 
     void ScanMatchBackend::lidarUpdate(const ScanAxis& xs, const ScanAxis& ys){
-        if(frame_index++ % 100 == 0){
+        if(frame_index++ % 10 == 0){
             rcl_map_backend_type::sub_map sm;
             local_map.getPos(sm.x, sm.y);
 
@@ -102,10 +102,11 @@ namespace rcl_scan_match_backend{
             sm.sensor_y = 0;
             int current_index = 0;
             {
+                std::lock_guard<std::mutex> lock(shared_data_mutex_);
+
                 // 서브맵 포인트는 이미 월드 좌표 → addWorldMap에 센서 위치도 전달
                 world_map.updateOccupancyMap(map_x, map_y, sm.x, sm.y);
 
-                std::lock_guard<std::mutex> lock(shared_data_mutex_);
                 // Local 좌표계로 서브맵으로 저장시.
                 RobotBasePose inv = inversePose(currentPose);
                 rotationAndTranslation(inv.tx, inv.ty, inv.theta, sm.x, sm.y);
@@ -118,10 +119,11 @@ namespace rcl_scan_match_backend{
                 if(current_index > 0){
                     pose_graph.addEdge(current_index - 1, current_index, 1.0, 1.0, 1.0, false);
                 }
+
+                local_map.clearMap();
             }
 
             frame_index = 1;
-            local_map.clearMap();
             lut_valid_ = false;  // 맵이 바뀌었으니 LUT 캐시 무효화
             qDebug()<<"Sub "<<preciouse(map_x, 3)<<" "<<preciouse(map_y, 3)<<" "<<preciouse(map_theta, 3);
             qDebug()<<"Odom "<<preciouse(odom_x, 3)<<" "<<preciouse(odom_y, 3)<<" "<<preciouse(odom_theta, 3);
@@ -189,6 +191,7 @@ namespace rcl_scan_match_backend{
 
         local_map.addPos(pixel_x, pixel_y);
 
+        emit scanUpdated(pixel_x, pixel_y);
         emit predictedPose(map_x, map_y, map_theta);
     }
 }
