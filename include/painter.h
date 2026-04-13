@@ -6,6 +6,7 @@
 #include <QPainter>
 #include <QPixmap>
 #include <vector>
+#include <mutex>
 
 #include "map_backend.h"
 #include "my_pose_graph.h"
@@ -25,6 +26,7 @@ namespace rcl_painter{
         rcl_pose_graph::PoseGraph* pose_graph = nullptr;
         rcl_map_backend::MapBackend* world_map = nullptr;
         rcl_map_backend::MapBackend* local_map = nullptr;
+        std::mutex* shared_data_mutex = nullptr;
 
         void drawScan(const std::vector<double>& xs, const std::vector<double>& ys);
         void drawPose(double x, double y, double theta);
@@ -32,7 +34,7 @@ namespace rcl_painter{
     protected:
         void paintEvent(QPaintEvent* event) override;
     public:
-        explicit Painter(rcl_pose_graph::PoseGraph* pg, rcl_map_backend::MapBackend* wm, rcl_map_backend::MapBackend* lm, double r=0.05, QWidget *parent = nullptr);
+        explicit Painter(rcl_pose_graph::PoseGraph* pg, rcl_map_backend::MapBackend* wm, rcl_map_backend::MapBackend* lm, double r=0.05, std::mutex* mtx=nullptr, QWidget *parent = nullptr);
         virtual ~Painter();
 
         void setSharedMem(SharedMem* sm);
