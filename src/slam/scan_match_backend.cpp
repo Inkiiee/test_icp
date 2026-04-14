@@ -88,6 +88,8 @@ namespace rcl_scan_match_backend{
             map_theta = normalizeAngle(map_theta + delta_theta);
         }
 
+        ref_cache_valid_ = false;  // rebuildMap이 world_map을 교체하므로
+        lut_valid_ = false;
         emit rebuildMapRequested();
     }
 
@@ -174,6 +176,7 @@ namespace rcl_scan_match_backend{
 
             frame_index = 1;
             lut_valid_ = false;  // 맵이 바뀌었으니 LUT 캐시 무효화
+            ref_cache_valid_ = false;  // world_map이 바뀌었으니 ref 캐시도 무효화
             qDebug()<<"Sub "<<preciouse(map_x, 3)<<" "<<preciouse(map_y, 3)<<" "<<preciouse(map_theta, 3);
             qDebug()<<"Odom "<<preciouse(odom_x, 3)<<" "<<preciouse(odom_y, 3)<<" "<<preciouse(odom_theta, 3);
 
@@ -187,13 +190,16 @@ namespace rcl_scan_match_backend{
         local_map.getPos(world_x, world_y);
         match_ref_map_.addPos(world_x, world_y);
 
-        // world_map에서 반경 내 포인트를 다운샘플(0.1m 해상도)하여 추출
-        // → pose 100+에서도 reference 포인트 수가 일정하게 유지됨
-        {
+        // world_map ref 캐시: 맵 변경 또는 0.5m 이상 이동 시에만 재계산
+        double cache_dist = std::sqrt((map_x - ref_cache_cx_) * (map_x - ref_cache_cx_) + (map_y - ref_cache_cy_) * (map_y - ref_cache_cy_));
+        if(!ref_cache_valid_ || cache_dist > 0.5){
             std::lock_guard<std::mutex> lock(shared_data_mutex_);
-            world_map.getAdjacentPosDownsampled(RobotBasePose(map_x, map_y, map_theta), world_x, world_y, 5.0, 0.1, true);
+            world_map.getAdjacentPosDownsampled(RobotBasePose(map_x, map_y, map_theta), cached_world_x_, cached_world_y_, 5.0, 0.1, true);
+            ref_cache_cx_ = map_x;
+            ref_cache_cy_ = map_y;
+            ref_cache_valid_ = true;
         }
-        match_ref_map_.addPos(world_x, world_y);
+        match_ref_map_.addPos(cached_world_x_, cached_world_y_);
         match_ref_map_.getPos(world_x, world_y);
 
         auto t_ref = std::chrono::steady_clock::now();

@@ -43,6 +43,11 @@ namespace rcl_scan_match_backend{
         rcl_scan_match::LookupTable cached_lut_;
         bool lut_valid_ = false;
         double last_csm_x_ = 0, last_csm_y_ = 0, last_csm_theta_ = 0;
+
+        // world_map reference 캐시 (매 프레임 getAdjacentPosDownsampled 회피)
+        std::vector<double> cached_world_x_, cached_world_y_;
+        double ref_cache_cx_ = 0, ref_cache_cy_ = 0;
+        bool ref_cache_valid_ = false;
     public:
         ScanMatchBackend(Bridge* b, double pos_r=0.05, QObject* parent=nullptr);
         virtual ~ScanMatchBackend();

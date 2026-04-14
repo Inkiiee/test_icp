@@ -119,7 +119,9 @@ namespace rcl_loop_detecter{
                 // CSM: 넓은 범위에서 전수 탐색 → NDT: 정밀 보정
                 Param par = scan_matcher.runCSM(current_submap.x, current_submap.y, lut,
                                 init.tx, init.ty, init.theta,
-                                /*search_xy=*/0.5, /*search_theta=*/0.35);
+                                /*search_xy=*/0.3, /*search_theta=*/0.2,
+                                /*coarse_xy_res=*/0.05, /*coarse_angle_res=*/0.02,
+                                /*fine_xy_res=*/0.01, /*fine_angle_res=*/0.004);
                 auto t_csm1 = std::chrono::steady_clock::now();
 
                 par = scan_matcher.runNDT(current_submap.x, current_submap.y, candidate_submap.x, candidate_submap.y,

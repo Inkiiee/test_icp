@@ -57,6 +57,8 @@ namespace rcl_map_backend{
         void getAdjacentPos(const RobotBasePose& pose, std::vector<double>& x, std::vector<double>& y, double radius, bool static_only = false);
         void getAdjacentPosDownsampled(const RobotBasePose& pose, std::vector<double>& x, std::vector<double>& y, double radius, double downsample_res, bool static_only = false);
         void clearMap();
+        void swapMapData(MapBackend& other);
+        double getResolution() const { return pos_r; }
         void incrementFrameIndex();
     };
 }

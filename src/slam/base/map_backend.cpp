@@ -175,6 +175,11 @@ namespace rcl_map_backend{
         wm.clear();
     }
 
+    void MapBackend::swapMapData(MapBackend& other){
+        wm.swap(other.wm);
+        std::swap(frame_index, other.frame_index);
+    }
+
     void MapBackend::incrementFrameIndex(){
         frame_index++;
     }

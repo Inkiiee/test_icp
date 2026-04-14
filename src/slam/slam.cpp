@@ -112,14 +112,15 @@ namespace rcl_slam{
         }
         auto t2 = std::chrono::steady_clock::now();
 
-        // 맵 갱신만 짧게 lock
+        // 맵을 lock 없이 임시 객체에 빌드, 짧은 lock으로 swap
+        rcl_map_backend::MapBackend temp_map(world_map->getResolution());
+        for(size_t i = 0; i < count; i++){
+            temp_map.updateOccupancyMap(transformed[i].sensor_x, transformed[i].sensor_y,
+                                        transformed[i].x, transformed[i].y);
+        }
         {
             std::lock_guard<std::mutex> lock(*data_mutex);
-            world_map->clearMap();
-            for(size_t i = 0; i < count; i++){
-                world_map->updateOccupancyMap(transformed[i].sensor_x, transformed[i].sensor_y,
-                                              transformed[i].x, transformed[i].y);
-            }
+            world_map->swapMapData(temp_map);
         }
         auto t3 = std::chrono::steady_clock::now();
 
