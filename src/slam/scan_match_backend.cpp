@@ -92,20 +92,40 @@ namespace rcl_scan_match_backend{
     }
 
     void ScanMatchBackend::lidarUpdate(const ScanAxis& xs, const ScanAxis& ys){
-        // ── Backpressure: 이전 처리가 아직 진행 중이면 이 스캔은 드롭 ──
+        // ── 1. 항상 최신 스캔을 버퍼에 저장 (O(1), 매우 빠름) ──
+        {
+            std::lock_guard<std::mutex> lock(scan_mutex_);
+            pending_scan_x_ = xs;
+            pending_scan_y_ = ys;
+            has_pending_scan_ = true;
+        }
+
+        // ── 2. 이미 처리 중이면 리턴 — 현재 처리가 끝난 뒤 다음 이벤트가 최신값을 처리 ──
         bool expected = false;
         if(!processing_busy_.compare_exchange_strong(expected, true)){
             return;
         }
 
-        // ── 거리 게이팅: 충분히 이동하지 않았으면 local_map에만 누적하고 스캔 매칭 스킵 ──
+        // ── 3. 버퍼에서 최신 스캔 가져오기 (Qt큐의 오래된 xs/ys가 아닌 진짜 최신값) ──
+        ScanAxis latest_xs, latest_ys;
+        {
+            std::lock_guard<std::mutex> lock(scan_mutex_);
+            if(!has_pending_scan_){
+                processing_busy_ = false;
+                return;
+            }
+            latest_xs = std::move(pending_scan_x_);
+            latest_ys = std::move(pending_scan_y_);
+            has_pending_scan_ = false;
+        }
+
+        // ── 거리 게이팅 ──
         double travel_xy = std::sqrt((map_x - last_match_x_) * (map_x - last_match_x_) + (map_y - last_match_y_) * (map_y - last_match_y_));
         double travel_theta = std::abs(normalizeAngle(map_theta - last_match_theta_));
         bool moved_enough = (travel_xy >= kMinTravelDistance || travel_theta >= kMinTravelAngle);
 
         if(!moved_enough){
-            // 최소한 local_map에는 누적해서 서브맵 품질 유지
-            std::vector<double> pixel_x(xs.begin(), xs.end()), pixel_y(ys.begin(), ys.end());
+            std::vector<double> pixel_x(latest_xs.begin(), latest_xs.end()), pixel_y(latest_ys.begin(), latest_ys.end());
             rotationAndTranslation(map_x, map_y, map_theta, pixel_x, pixel_y);
             local_map.addPos(pixel_x, pixel_y);
             emit scanUpdated(pixel_x, pixel_y);
@@ -169,7 +189,7 @@ namespace rcl_scan_match_backend{
         match_ref_map_.getPos(world_x, world_y);
 
         if(!world_x.empty()){
-            std::vector<double> scan_x(xs.begin(), xs.end()), scan_y(ys.begin(), ys.end());
+            std::vector<double> scan_x(latest_xs.begin(), latest_xs.end()), scan_y(latest_ys.begin(), latest_ys.end());
 
             // odom 변위가 충분할 때만 CSM, 그 외엔 NDT만
             double disp_xy = std::sqrt((map_x - last_csm_x_) * (map_x - last_csm_x_) + (map_y - last_csm_y_) * (map_y - last_csm_y_));
@@ -208,8 +228,8 @@ namespace rcl_scan_match_backend{
             map_theta = p.theta;
         }
 
-        pixel_x.assign(xs.begin(), xs.end());
-        pixel_y.assign(ys.begin(), ys.end());
+        pixel_x.assign(latest_xs.begin(), latest_xs.end());
+        pixel_y.assign(latest_ys.begin(), latest_ys.end());
         rotationAndTranslation(map_x, map_y, map_theta, pixel_x, pixel_y);
 
         local_map.addPos(pixel_x, pixel_y);

@@ -28,7 +28,10 @@ namespace rcl_scan_match_backend{
         std::atomic<double> map_x, map_y, map_theta, odom_x, odom_y, odom_theta, imu_theta;
         size_t sub_map_index = 0, frame_index = 0;
 
-        // Backpressure: 처리 중이면 새 스캔 드롭
+        // 최신 스캔 버퍼: signal은 여기에 저장만, 처리는 항상 최신값으로
+        std::mutex scan_mutex_;
+        ScanAxis pending_scan_x_, pending_scan_y_;
+        bool has_pending_scan_ = false;
         std::atomic<bool> processing_busy_{false};
 
         // 거리 게이팅: 충분히 이동했을 때만 스캔 매칭
