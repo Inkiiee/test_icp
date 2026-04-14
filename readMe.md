@@ -351,8 +351,9 @@ g2o를 쓴다면 `LinearSolverCholmod` 또는 `LinearSolverCSparse`가 일반적
 구조는 이미 전체 파이프라인이 연결되어 있고,
 최근에는 concurrency 안정성과 pose graph fallback 성능이 일부 개선된 상태다.
 
-## 구조
+## SLAM Flow Chart
 
+```mermaid
 flowchart LR
     A["LiDAR topic"]
     B["Bridge::scanDataReceived"]
@@ -388,6 +389,10 @@ flowchart LR
     J -- "QueuedConnection" --> K
     K --> L
     L -- "QueuedConnection" --> M
+
+    F -- "QueuedConnection" --> N
+    G -- "QueuedConnection" --> N
+```
 
     F -- "QueuedConnection" --> N
     G -- "QueuedConnection" --> N
