@@ -350,3 +350,43 @@ g2o를 쓴다면 `LinearSolverCholmod` 또는 `LinearSolverCSparse`가 일반적
 
 구조는 이미 전체 파이프라인이 연결되어 있고,
 최근에는 concurrency 안정성과 pose graph fallback 성능이 일부 개선된 상태다.
+
+## 구조
+flowchart LR
+    A["LiDAR topic"]
+    B["Bridge::scanDataReceived"]
+
+    C["Backend::lidarUpdate<br/>(thread1)"]
+    D["매 프레임: CSM + NDT<br/>(무거움)"]
+    E["10프레임마다: subMapUpdated"]
+    F["predictedPose"]
+    G["scanUpdated"]
+
+    H["LoopDetecter::detectLoop<br/>(thread2)"]
+    I["루프 감지 시:<br/>CSM + NDT + RMSE + loopOptimize"]
+    J["optimizedPoseUpdated"]
+
+    K["Backend::poseOptimized"]
+    L["rebuildMapRequested"]
+    M["SlamSystem::rebuildMap<br/>(thread3)"]
+
+    N["Painter<br/>(main thread)"]
+
+    A --> B
+    B -- "QueuedConnection" --> C
+
+    C --> D
+    C --> E
+    C --> F
+    C --> G
+
+    E -- "QueuedConnection" --> H
+    H --> I
+    I --> J
+
+    J -- "QueuedConnection" --> K
+    K --> L
+    L -- "QueuedConnection" --> M
+
+    F -- "QueuedConnection" --> N
+    G -- "QueuedConnection" --> N
