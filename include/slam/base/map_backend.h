@@ -59,6 +59,9 @@ namespace rcl_map_backend{
         void clearMap();
         void swapMapData(MapBackend& other);
         double getResolution() const { return pos_r; }
+        void rebuildFromSubmaps(
+            const std::vector<double>& sensor_xs, const std::vector<double>& sensor_ys,
+            const std::vector<std::vector<double>>& point_xs, const std::vector<std::vector<double>>& point_ys);
         void incrementFrameIndex();
     };
 }

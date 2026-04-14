@@ -180,6 +180,123 @@ namespace rcl_map_backend{
         std::swap(frame_index, other.frame_index);
     }
 
+    void MapBackend::rebuildFromSubmaps(
+        const std::vector<double>& sensor_xs, const std::vector<double>& sensor_ys,
+        const std::vector<std::vector<double>>& point_xs, const std::vector<std::vector<double>>& point_ys)
+    {
+        wm.clear();
+        size_t n = sensor_xs.size();
+        if(n == 0) return;
+
+        // 1) Bounding box 계산
+        double bmin_x = sensor_xs[0], bmax_x = sensor_xs[0];
+        double bmin_y = sensor_ys[0], bmax_y = sensor_ys[0];
+        for(size_t s = 0; s < n; s++){
+            bmin_x = std::min(bmin_x, sensor_xs[s]);
+            bmax_x = std::max(bmax_x, sensor_xs[s]);
+            bmin_y = std::min(bmin_y, sensor_ys[s]);
+            bmax_y = std::max(bmax_y, sensor_ys[s]);
+            for(size_t i = 0; i < point_xs[s].size(); i++){
+                bmin_x = std::min(bmin_x, point_xs[s][i]);
+                bmax_x = std::max(bmax_x, point_xs[s][i]);
+                bmin_y = std::min(bmin_y, point_ys[s][i]);
+                bmax_y = std::max(bmax_y, point_ys[s][i]);
+            }
+        }
+
+        // Grid 범위 (get_map_index와 동일하게 std::ceil 사용)
+        int gmin_x = static_cast<int>(std::floor(bmin_x / pos_r)) - 2;
+        int gmin_y = static_cast<int>(std::floor(bmin_y / pos_r)) - 2;
+        int gmax_x = static_cast<int>(std::ceil(bmax_x / pos_r)) + 2;
+        int gmax_y = static_cast<int>(std::ceil(bmax_y / pos_r)) + 2;
+
+        int W = gmax_x - gmin_x + 1;
+        int H = gmax_y - gmin_y + 1;
+        size_t grid_size = static_cast<size_t>(W) * H;
+
+        // 2) Flat grid 할당 (hash map 대신 배열 → Bresenham O(1) 접근)
+        std::vector<uint8_t> hit_grid(grid_size, 0);
+        std::vector<uint8_t> miss_grid(grid_size, 0);
+        std::vector<uint8_t> is_hit(grid_size, 0);  // 서브맵 단위 hit 마커
+
+        constexpr uint8_t kMaxCount = 20;
+        constexpr uint8_t kMaxMiss = 20;
+        constexpr uint8_t kOccThresh = 3;
+
+        // 3) 서브맵별 처리
+        std::vector<std::pair<int,int>> hit_cells;  // is_hit 클리어용 인덱스 저장
+
+        for(size_t s = 0; s < n; s++){
+            int ox = static_cast<int>(std::ceil(sensor_xs[s] / pos_r));
+            int oy = static_cast<int>(std::ceil(sensor_ys[s] / pos_r));
+
+            hit_cells.clear();
+
+            // Hit 셀 마킹 (dedup)
+            for(size_t i = 0; i < point_xs[s].size(); i++){
+                int gx = static_cast<int>(std::ceil(point_xs[s][i] / pos_r));
+                int gy = static_cast<int>(std::ceil(point_ys[s][i] / pos_r));
+                int lx = gx - gmin_x, ly = gy - gmin_y;
+                if(lx < 0 || lx >= W || ly < 0 || ly >= H) continue;
+                size_t idx = static_cast<size_t>(ly) * W + lx;
+                if(!is_hit[idx]){
+                    is_hit[idx] = 1;
+                    hit_cells.emplace_back(gx, gy);
+                    if(hit_grid[idx] < kMaxCount) hit_grid[idx]++;
+                }
+            }
+
+            // Bresenham ray tracing (센서 → hit 셀, free 셀에 miss 기록)
+            for(const auto& [hx, hy] : hit_cells){
+                int x0 = ox, y0 = oy;
+                int dx = std::abs(hx - x0), dy = std::abs(hy - y0);
+                int sx = (x0 < hx) ? 1 : -1, sy = (y0 < hy) ? 1 : -1;
+                int err = dx - dy;
+
+                while(x0 != hx || y0 != hy){
+                    if(x0 != ox || y0 != oy){
+                        int lx = x0 - gmin_x, ly = y0 - gmin_y;
+                        if(lx >= 0 && lx < W && ly >= 0 && ly < H){
+                            size_t ci = static_cast<size_t>(ly) * W + lx;
+                            if(is_hit[ci]){
+                                // hit 셀은 건너뜀
+                            } else if(hit_grid[ci] >= kOccThresh){
+                                break;  // 이미 장애물 → ray 중단
+                            } else {
+                                if(miss_grid[ci] < kMaxMiss) miss_grid[ci]++;
+                            }
+                        }
+                    }
+                    int err2 = 2 * err;
+                    if(err2 > -dy){ err -= dy; x0 += sx; }
+                    if(err2 < dx){ err += dx; y0 += sy; }
+                }
+            }
+
+            // is_hit 클리어 (다음 서브맵을 위해)
+            for(const auto& [gx, gy] : hit_cells){
+                int lx = gx - gmin_x, ly = gy - gmin_y;
+                is_hit[static_cast<size_t>(ly) * W + lx] = 0;
+            }
+        }
+
+        // 4) Flat grid → hash map 변환 (1회만)
+        for(int ly = 0; ly < H; ly++){
+            for(int lx = 0; lx < W; lx++){
+                size_t idx = static_cast<size_t>(ly) * W + lx;
+                if(hit_grid[idx] > 0 || miss_grid[idx] > 0){
+                    int gx = lx + gmin_x, gy = ly + gmin_y;
+                    Weight w;
+                    w.x = gx * pos_r;
+                    w.y = gy * pos_r;
+                    w.hit_count = hit_grid[idx];
+                    w.miss_count = miss_grid[idx];
+                    wm[{gx, gy}] = w;
+                }
+            }
+        }
+    }
+
     void MapBackend::incrementFrameIndex(){
         frame_index++;
     }

@@ -113,11 +113,18 @@ namespace rcl_slam{
         auto t2 = std::chrono::steady_clock::now();
 
         // 맵을 lock 없이 임시 객체에 빌드, 짧은 lock으로 swap
-        // rebuild는 포즈 보정만 → ray tracing 불필요, addPos로 hit만 재배치
-        rcl_map_backend::MapBackend temp_map(world_map->getResolution());
+        // flat 2D array 기반 Bresenham → hash map 20.6M ops を O(1) 배열 접근으로
+        std::vector<double> sensor_xs(count), sensor_ys(count);
+        std::vector<std::vector<double>> pt_xs(count), pt_ys(count);
         for(size_t i = 0; i < count; i++){
-            temp_map.addPos(transformed[i].x, transformed[i].y);
+            sensor_xs[i] = transformed[i].sensor_x;
+            sensor_ys[i] = transformed[i].sensor_y;
+            pt_xs[i] = std::move(transformed[i].x);
+            pt_ys[i] = std::move(transformed[i].y);
         }
+
+        rcl_map_backend::MapBackend temp_map(world_map->getResolution());
+        temp_map.rebuildFromSubmaps(sensor_xs, sensor_ys, pt_xs, pt_ys);
         {
             std::lock_guard<std::mutex> lock(*data_mutex);
             world_map->swapMapData(temp_map);
