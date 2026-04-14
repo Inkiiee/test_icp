@@ -20,6 +20,7 @@ namespace rcl_scan_match_backend{
         rcl_scan_match::ScanMatcher scan_matcher;
         rcl_map_backend::MapBackend world_map;
         rcl_map_backend::MapBackend local_map;
+        rcl_map_backend::MapBackend match_ref_map_;  // 스캔 매칭 레퍼런스용 (매 프레임 재활용)
         std::vector<rcl_map_backend::sub_map> sub_maps;
         rcl_pose_graph::PoseGraph pose_graph;
         std::mutex shared_data_mutex_;

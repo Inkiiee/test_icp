@@ -131,29 +131,39 @@ namespace rcl_map_backend{
         x.clear();
         y.clear();
 
-        // 반경 내 그리드 셀 범위를 직접 계산하여 해당 셀만 조회
-        // O(전체맵) → O((2*radius/pos_r)^2)
-        int min_cx = static_cast<int>(std::floor((pose.tx - radius) / pos_r));
-        int max_cx = static_cast<int>(std::ceil((pose.tx + radius) / pos_r));
-        int min_cy = static_cast<int>(std::floor((pose.ty - radius) / pos_r));
-        int max_cy = static_cast<int>(std::ceil((pose.ty + radius) / pos_r));
+        double r2 = radius * radius;
+        for(const auto& entry : wm){
+            const Weight& weight = entry.second;
+            if(static_only && !isStaticCell(weight)) continue;
 
-        int range = (max_cx - min_cx + 1) * (max_cy - min_cy + 1);
-        x.reserve(std::min(range, static_cast<int>(wm.size())));
-        y.reserve(std::min(range, static_cast<int>(wm.size())));
+            double dx = weight.x - pose.tx;
+            double dy = weight.y - pose.ty;
+            if(dx * dx + dy * dy <= r2){
+                x.push_back(weight.x);
+                y.push_back(weight.y);
+            }
+        }
+    }
+
+    void MapBackend::getAdjacentPosDownsampled(const RobotBasePose& pose, std::vector<double>& x, std::vector<double>& y, double radius, double downsample_res, bool static_only){
+        x.clear();
+        y.clear();
+
+        // downsample_res 해상도로 1포인트만 유지 (pos_r보다 coarse한 그리드)
+        double inv_ds = 1.0 / downsample_res;
+        std::unordered_set<weight_map_index_type, PairHash> seen;
 
         double r2 = radius * radius;
-        for(int cx = min_cx; cx <= max_cx; cx++){
-            for(int cy = min_cy; cy <= max_cy; cy++){
-                auto it = wm.find({cx, cy});
-                if(it == wm.end()) continue;
+        for(const auto& entry : wm){
+            const Weight& weight = entry.second;
+            if(static_only && !isStaticCell(weight)) continue;
 
-                const Weight& weight = it->second;
-                if(static_only && !isStaticCell(weight)) continue;
-
-                double dx = weight.x - pose.tx;
-                double dy = weight.y - pose.ty;
-                if(dx * dx + dy * dy <= r2){
+            double dx = weight.x - pose.tx;
+            double dy = weight.y - pose.ty;
+            if(dx * dx + dy * dy <= r2){
+                int gx = static_cast<int>(std::floor(weight.x * inv_ds));
+                int gy = static_cast<int>(std::floor(weight.y * inv_ds));
+                if(seen.emplace(gx, gy).second){
                     x.push_back(weight.x);
                     y.push_back(weight.y);
                 }

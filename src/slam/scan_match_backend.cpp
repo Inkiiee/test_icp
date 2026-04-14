@@ -153,19 +153,20 @@ namespace rcl_scan_match_backend{
             emit subMapUpdated(current_index);
         }
 
-        // 매칭 대상: sub_world_wm(최근 서브맵) + world_wm에서 로봇 근처 포인트만
-        MapBackend temp_wm;
+        // 매칭 대상: local_map + world_map에서 로봇 근처 다운샘플된 포인트
+        match_ref_map_.clearMap();
         std::vector<double> pixel_x, pixel_y, world_x, world_y;
         local_map.getPos(world_x, world_y);
-        temp_wm.addPos(world_x, world_y);
+        match_ref_map_.addPos(world_x, world_y);
 
-        // world_wm에서 로봇 주변 일정 범위 내 포인트만 추출 (먼 포인트 제외)
+        // world_map에서 반경 내 포인트를 다운샘플(0.1m 해상도)하여 추출
+        // → pose 100+에서도 reference 포인트 수가 일정하게 유지됨
         {
             std::lock_guard<std::mutex> lock(shared_data_mutex_);
-            world_map.getAdjacentPos(RobotBasePose(map_x, map_y, map_theta), world_x, world_y, 8.0, true);
+            world_map.getAdjacentPosDownsampled(RobotBasePose(map_x, map_y, map_theta), world_x, world_y, 5.0, 0.1, true);
         }
-        temp_wm.addPos(world_x, world_y);
-        temp_wm.getPos(world_x, world_y);
+        match_ref_map_.addPos(world_x, world_y);
+        match_ref_map_.getPos(world_x, world_y);
 
         if(!world_x.empty()){
             std::vector<double> scan_x(xs.begin(), xs.end()), scan_y(ys.begin(), ys.end());
