@@ -8,6 +8,7 @@ namespace rcl_slam{
     using namespace rcl_loop_detecter;
     using namespace rcl_painter;
     using namespace rcl_slam_basic_transform;
+    using rcl_pose_graph_type::Node;
 
     SlamSystem::SlamSystem(Bridge* b, double r, QObject* parent): QObject(parent), pos_r{r}, bridge{b} {
         backend = new ScanMatchBackend(bridge, pos_r, this);
@@ -76,23 +77,44 @@ namespace rcl_slam{
         auto sub_maps = backend->getSubMaps();
         auto data_mutex = backend->getSharedDataMutex();
 
-        std::lock_guard<std::mutex> lock(*data_mutex);
+        // 스냅샷으로 포즈 복사 + 서브맵 참조 준비 (짧은 lock)
+        std::vector<rcl_pose_graph_type::Node> pose_snapshot;
+        size_t count;
+        {
+            std::lock_guard<std::mutex> lock(*data_mutex);
+            pose_snapshot = pose_graph->getPoseSnapshot();
+            count = std::min(pose_snapshot.size(), sub_maps->size());
+        }
 
-        world_map->clearMap();
-        for(size_t i=0; i<pose_graph->getPoseCount(); i++){
+        // 변환 연산은 lock 없이 수행
+        struct TransformedSubmap {
+            std::vector<double> x, y;
+            double sensor_x, sensor_y;
+        };
+        std::vector<TransformedSubmap> transformed(count);
+
+        for(size_t i = 0; i < count; i++){
             const auto& sm = (*sub_maps)[i];
-            std::vector<double> xpos(sm.x.begin(), sm.x.end());
-            std::vector<double> ypos(sm.y.begin(), sm.y.end());
+            transformed[i].x.assign(sm.x.begin(), sm.x.end());
+            transformed[i].y.assign(sm.y.begin(), sm.y.end());
 
-            rotationAndTranslation(pose_graph->getPose(i).tx, pose_graph->getPose(i).ty, pose_graph->getPose(i).theta, xpos, ypos);
+            rotationAndTranslation(pose_snapshot[i].tx, pose_snapshot[i].ty, pose_snapshot[i].theta,
+                                   transformed[i].x, transformed[i].y);
 
-            // 센서 원점도 같이 변환
             double sx = sm.sensor_x, sy = sm.sensor_y;
-            double ct = std::cos(pose_graph->getPose(i).theta), st = std::sin(pose_graph->getPose(i).theta);
-            double world_sx = ct * sx - st * sy + pose_graph->getPose(i).tx;
-            double world_sy = st * sx + ct * sy + pose_graph->getPose(i).ty;
+            double ct = std::cos(pose_snapshot[i].theta), st = std::sin(pose_snapshot[i].theta);
+            transformed[i].sensor_x = ct * sx - st * sy + pose_snapshot[i].tx;
+            transformed[i].sensor_y = st * sx + ct * sy + pose_snapshot[i].ty;
+        }
 
-            world_map->updateOccupancyMap(world_sx, world_sy, xpos, ypos);
+        // 맵 갱신만 짧게 lock
+        {
+            std::lock_guard<std::mutex> lock(*data_mutex);
+            world_map->clearMap();
+            for(size_t i = 0; i < count; i++){
+                world_map->updateOccupancyMap(transformed[i].sensor_x, transformed[i].sensor_y,
+                                              transformed[i].x, transformed[i].y);
+            }
         }
     }
 }

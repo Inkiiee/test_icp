@@ -42,6 +42,10 @@ namespace rcl_pose_graph{
         rcl_slam_basic_type::RobotBasePose getPose(int index) const;
         void setPose(int index, const rcl_slam_basic_type::RobotBasePose& pose);
 
+        // Bulk 조회: lock 1회로 전체 스냅샷
+        std::vector<rcl_pose_graph_type::Node> getPoseSnapshot() const;
+        std::vector<rcl_pose_graph_type::Node> getPoseSnapshot(int from, int to) const;
+
         // Pose graph optimization 관련 함수들
         Eigen::Vector3d errorCompute(const rcl_pose_graph_type::Edge& edge) const;
         void loopOptimize(int iter=20, double epsilon=1e-6);

@@ -2,6 +2,7 @@
 #include "slam_basic.h"
 
 #include <cmath>
+#include <algorithm>
 #include <Eigen/Sparse>
 #ifdef TEST_ICP_HAS_G2O
 #include <g2o/core/block_solver.h>
@@ -73,6 +74,20 @@ namespace rcl_pose_graph{
         }
     }
 
+    std::vector<Node> PoseGraph::getPoseSnapshot() const{
+        std::lock_guard<std::mutex> lock(mutex_);
+        return pose_history;
+    }
+
+    std::vector<Node> PoseGraph::getPoseSnapshot(int from, int to) const{
+        std::lock_guard<std::mutex> lock(mutex_);
+        int sz = static_cast<int>(pose_history.size());
+        if(from < 0) from = 0;
+        if(to > sz) to = sz;
+        if(from >= to) return {};
+        return std::vector<Node>(pose_history.begin() + from, pose_history.begin() + to);
+    }
+
     // Pose graph optimization 관련 함수들
     Eigen::Vector3d PoseGraph::errorComputeUnlocked(const Edge& edge) const{
         RobotBasePose relative = relativePose(pose_history[edge.from], pose_history[edge.to]);
@@ -134,7 +149,9 @@ namespace rcl_pose_graph{
         }
 
         optimizer.initializeOptimization();
-        optimizer.optimize(iter);
+        // 포즈가 많아지면 반복 횟수 제한 (N=500 → 최대10회, N=1000 → 최대5회)
+        int max_iter = std::max(3, std::min(iter, 5000 / N));
+        optimizer.optimize(max_iter);
 
         for(int i = 0; i < N; i++){
             const auto* vertex = dynamic_cast<const g2o::VertexSE2*>(optimizer.vertex(i));
@@ -149,8 +166,10 @@ namespace rcl_pose_graph{
         }
         (void)epsilon;
 #else
+        // built-in solver: 포즈가 많아지면 반복 횟수 제한
+        int max_iter = std::max(3, std::min(iter, 5000 / N));
         using Triplet = Eigen::Triplet<double>;
-        for(int i=0; i<iter; i++){
+        for(int i=0; i<max_iter; i++){
             std::vector<Triplet> triplets;
             triplets.reserve(edges.size() * 36);  // 각 엣지가 4개 3x3 블록 기여
             Eigen::VectorXd b = Eigen::VectorXd::Zero(3*N);

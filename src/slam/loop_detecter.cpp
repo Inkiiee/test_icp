@@ -57,17 +57,20 @@ namespace rcl_loop_detecter{
         Node p;
         {
             std::lock_guard<std::mutex> lock(*shared_data_mutex);
-            if(current_index >= pose_graph->getPoseCount() || current_index >= sub_maps->size()){
+            size_t pose_count = pose_graph->getPoseCount();
+            size_t sub_map_count = sub_maps->size();
+            if(current_index >= pose_count || current_index >= sub_map_count){
                 return;
             }
 
+            // 스냅샷 1회로 전체 포즈 복사 (lock 내부에서 getPose N번 호출 제거)
+            auto pose_snapshot = pose_graph->getPoseSnapshot(0, static_cast<int>(current_index) - kMinLoopIndexGap + 1);
             p = pose_graph->getPose(current_index);
             current_submap = (*sub_maps)[current_index];
 
-            for(int i = 0; i <= static_cast<int>(current_index) - kMinLoopIndexGap; i++){
-                Node temp = pose_graph->getPose(i);
-                double dx = p.tx - temp.tx;
-                double dy = p.ty - temp.ty;
+            for(int i = 0; i < static_cast<int>(pose_snapshot.size()); i++){
+                double dx = p.tx - pose_snapshot[i].tx;
+                double dy = p.ty - pose_snapshot[i].ty;
                 double distance = std::sqrt(dx * dx + dy * dy);
 
                 if(distance < kCandidateDistanceThreshold){

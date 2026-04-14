@@ -61,10 +61,8 @@ namespace rcl_painter{
         std::vector<rcl_slam_basic_type::RobotBasePose> poses;
         if(shared_data_mutex){
             std::lock_guard<std::mutex> lock(*shared_data_mutex);
-            int count = static_cast<int>(pose_graph->getPoseCount());
-            poses.reserve(count);
-            for(int i=0; i<count; i++)
-                poses.push_back(pose_graph->getPose(i));
+            auto snapshot = pose_graph->getPoseSnapshot();
+            poses.assign(snapshot.begin(), snapshot.end());
         }
         for(const auto& p : poses){
             double mx = (p.tx - min) / (max - min) * map_size_x;
