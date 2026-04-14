@@ -15,6 +15,7 @@
 6. 최적화 결과가 들어오면 world map을 다시 구성한다.
 7. `Painter`가 world map, 현재 scan, trajectory를 그린다.
 
+<img width="887" height="823" alt="슬램" src="https://github.com/user-attachments/assets/df08429a-0dd7-406e-8b4c-fc563d1885f6" />
 
 ## 주요 클래스 역할
 
@@ -393,3 +394,4 @@ flowchart LR
     F -- "QueuedConnection" --> N
     G -- "QueuedConnection" --> N
 ```
+<img width="887" height="823" alt="슬램" src="https://github.com/user-attachments/assets/9f3357bd-59b3-4e5c-8634-6ea8fa51f8c7" />
