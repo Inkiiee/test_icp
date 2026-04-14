@@ -88,6 +88,16 @@ namespace rcl_pose_graph{
         return std::vector<Node>(pose_history.begin() + from, pose_history.begin() + to);
     }
 
+    void PoseGraph::setPoses(int from, const std::vector<RobotBasePose>& poses){
+        std::lock_guard<std::mutex> lock(mutex_);
+        int sz = static_cast<int>(pose_history.size());
+        for(int i = 0; i < static_cast<int>(poses.size()) && (from + i) < sz; i++){
+            pose_history[from + i].tx = poses[i].tx;
+            pose_history[from + i].ty = poses[i].ty;
+            pose_history[from + i].theta = poses[i].theta;
+        }
+    }
+
     // Pose graph optimization 관련 함수들
     Eigen::Vector3d PoseGraph::errorComputeUnlocked(const Edge& edge) const{
         RobotBasePose relative = relativePose(pose_history[edge.from], pose_history[edge.to]);

@@ -136,20 +136,21 @@ namespace rcl_loop_detecter{
 
                         pending_loop_edges_++;
                         should_optimize = (pending_loop_edges_ >= kOptimizeEveryNLoopEdges);
-                        if(should_optimize){
-                            last_node_index = pose_graph->getPoseCount() - 1;
-                            old_node = pose_graph->getPose(last_node_index);
-                            pose_graph->loopOptimize();
-                            pending_loop_edges_ = 0;
-                        }
                     }
 
                     if(should_optimize){
-                        Node new_node;
+                        // loopOptimize를 shared_data_mutex 밖에서 실행
+                        // PoseGraph 내부 mutex_만 사용 → lidarUpdate의 다른 구간은 블록되지 않음
                         {
                             std::lock_guard<std::mutex> lock(*shared_data_mutex);
-                            new_node = pose_graph->getPose(last_node_index);
+                            last_node_index = pose_graph->getPoseCount() - 1;
+                            old_node = pose_graph->getPose(last_node_index);
                         }
+
+                        pose_graph->loopOptimize();
+                        pending_loop_edges_ = 0;
+
+                        Node new_node = pose_graph->getPose(last_node_index);
                         Eigen::Matrix3d delta = calDeltaTransform(old_node, new_node);
                         emit optimizedPoseUpdated(last_node_index, delta);
                     }

@@ -62,19 +62,23 @@ namespace rcl_scan_match_backend{
 
     void ScanMatchBackend::poseOptimized(int index, const Eigen::Matrix3d& delta){
         double delta_theta = std::atan2(delta(1, 0), delta(0, 0));
+
+        // 1) 스냅샷 읽기 (짧은 lock)
+        auto snapshot = pose_graph.getPoseSnapshot(index + 1, static_cast<int>(pose_graph.getPoseCount()));
+
+        // 2) delta 적용 (lock 없이)
+        std::vector<RobotBasePose> updated;
+        updated.reserve(snapshot.size());
+        for(const auto& p : snapshot){
+            Eigen::Vector3d vec(p.tx, p.ty, 1);
+            vec = delta * vec;
+            updated.push_back(RobotBasePose(vec.x(), vec.y(), normalizeAngle(p.theta + delta_theta)));
+        }
+
+        // 3) 일괄 쓰기 + map 보정 (짧은 lock)
         {
             std::lock_guard<std::mutex> lock(shared_data_mutex_);
-
-            // 최적화 이후 새로 추가된 포즈들에 delta 보정 적용
-            for(int i=index + 1; i < static_cast<int>(pose_graph.getPoseCount()); i++){
-                auto p = pose_graph.getPose(i);
-                Eigen::Vector3d vec(p.tx, p.ty, 1);
-                vec = delta * vec;
-                p.tx = vec.x();
-                p.ty = vec.y();
-                p.theta = normalizeAngle(p.theta + delta_theta);
-                pose_graph.setPose(i, p);  // 실제로 pose graph에 반영
-            }
+            pose_graph.setPoses(index + 1, updated);
 
             Eigen::Vector3d vec(map_x, map_y, 1);
             vec = delta * vec;
