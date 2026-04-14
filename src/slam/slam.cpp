@@ -113,10 +113,10 @@ namespace rcl_slam{
         auto t2 = std::chrono::steady_clock::now();
 
         // 맵을 lock 없이 임시 객체에 빌드, 짧은 lock으로 swap
+        // rebuild는 포즈 보정만 → ray tracing 불필요, addPos로 hit만 재배치
         rcl_map_backend::MapBackend temp_map(world_map->getResolution());
         for(size_t i = 0; i < count; i++){
-            temp_map.updateOccupancyMap(transformed[i].sensor_x, transformed[i].sensor_y,
-                                        transformed[i].x, transformed[i].y);
+            temp_map.addPos(transformed[i].x, transformed[i].y);
         }
         {
             std::lock_guard<std::mutex> lock(*data_mutex);
