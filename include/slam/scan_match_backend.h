@@ -27,6 +27,14 @@ namespace rcl_scan_match_backend{
         std::atomic<double> map_x, map_y, map_theta, odom_x, odom_y, odom_theta, imu_theta;
         size_t sub_map_index = 0, frame_index = 0;
 
+        // Backpressure: 처리 중이면 새 스캔 드롭
+        std::atomic<bool> processing_busy_{false};
+
+        // 거리 게이팅: 충분히 이동했을 때만 스캔 매칭
+        double last_match_x_ = 0, last_match_y_ = 0, last_match_theta_ = 0;
+        static constexpr double kMinTravelDistance = 0.01;  // 1cm
+        static constexpr double kMinTravelAngle = 0.005;     // ~0.3도
+
         // CSM 캐시 & 호출 빈도 제어
         rcl_scan_match::LookupTable cached_lut_;
         bool lut_valid_ = false;

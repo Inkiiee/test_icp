@@ -5,6 +5,7 @@
 #include <QLabel>
 #include <QPainter>
 #include <QPixmap>
+#include <atomic>
 #include <vector>
 #include <mutex>
 
@@ -21,6 +22,7 @@ namespace rcl_painter{
         double pos_r;
         bool is_lidar_visible = true;
         int paint_frame_counter_ = 0;
+        std::atomic<bool> paint_busy_{false};
         QPixmap pixmap, lader_pixmap, world_pixmap;
         QLabel* label;
         SharedMem* shared_mem = nullptr;

@@ -35,12 +35,20 @@ namespace rcl_loop_detecter{
     }
 
     void LoopDetecter::detectLoop(size_t current_index){
+        // 최신 요청 인덱스 갱신
+        latest_requested_index_.store(current_index, std::memory_order_relaxed);
+
         if(!pose_graph || !sub_maps || !shared_data_mutex)
             return;
         if(current_index < static_cast<size_t>(kMinLoopIndexGap)){
             return;
         }
         if(current_index % kLoopDetectionStride != 0){
+            return;
+        }
+
+        // Stale 체크: 큐에 더 새로운 요청이 있으면 이 요청은 스킵
+        if(current_index < latest_requested_index_.load(std::memory_order_relaxed)){
             return;
         }
 

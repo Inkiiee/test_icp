@@ -92,6 +92,28 @@ namespace rcl_scan_match_backend{
     }
 
     void ScanMatchBackend::lidarUpdate(const ScanAxis& xs, const ScanAxis& ys){
+        // ── Backpressure: 이전 처리가 아직 진행 중이면 이 스캔은 드롭 ──
+        bool expected = false;
+        if(!processing_busy_.compare_exchange_strong(expected, true)){
+            return;
+        }
+
+        // ── 거리 게이팅: 충분히 이동하지 않았으면 local_map에만 누적하고 스캔 매칭 스킵 ──
+        double travel_xy = std::sqrt((map_x - last_match_x_) * (map_x - last_match_x_) + (map_y - last_match_y_) * (map_y - last_match_y_));
+        double travel_theta = std::abs(normalizeAngle(map_theta - last_match_theta_));
+        bool moved_enough = (travel_xy >= kMinTravelDistance || travel_theta >= kMinTravelAngle);
+
+        if(!moved_enough){
+            // 최소한 local_map에는 누적해서 서브맵 품질 유지
+            std::vector<double> pixel_x(xs.begin(), xs.end()), pixel_y(ys.begin(), ys.end());
+            rotationAndTranslation(map_x, map_y, map_theta, pixel_x, pixel_y);
+            local_map.addPos(pixel_x, pixel_y);
+            emit scanUpdated(pixel_x, pixel_y);
+            emit predictedPose(map_x, map_y, map_theta);
+            processing_busy_ = false;
+            return;
+        }
+
         if(frame_index++ % 10 == 0){
             rcl_map_backend_type::sub_map sm;
             local_map.getPos(sm.x, sm.y);
@@ -191,7 +213,13 @@ namespace rcl_scan_match_backend{
 
         local_map.addPos(pixel_x, pixel_y);
 
+        last_match_x_ = map_x;
+        last_match_y_ = map_y;
+        last_match_theta_ = map_theta;
+
         emit scanUpdated(pixel_x, pixel_y);
         emit predictedPose(map_x, map_y, map_theta);
+
+        processing_busy_ = false;
     }
 }

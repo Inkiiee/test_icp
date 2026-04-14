@@ -129,8 +129,14 @@ namespace rcl_painter{
     } 
 
     void Painter::scanUpdate(const std::vector<double>& xs, const std::vector<double>& ys){
+        // Painter는 main thread에서 실행 — 이전 그리기가 끝나지 않았으면 드롭
+        bool expected = false;
+        if(!paint_busy_.compare_exchange_strong(expected, true)){
+            return;
+        }
         drawScan(xs, ys);
         repaint();
+        paint_busy_ = false;
     }
     void Painter::predictedPoseUpdate(double x, double y, double theta){
         // Throttle expensive world map redraws (every 5 frames)

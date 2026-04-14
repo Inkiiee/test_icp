@@ -6,6 +6,7 @@
 #include "my_pose_graph.h"
 
 #include <QObject>
+#include <atomic>
 #include <mutex>
 #include <vector>
 #include <Eigen/Dense>
@@ -25,6 +26,7 @@ namespace rcl_loop_detecter{
         std::vector<rcl_map_backend::sub_map>* sub_maps;
         std::mutex* shared_data_mutex;
         int pending_loop_edges_ = 0;
+        std::atomic<size_t> latest_requested_index_{0};  // 최신 요청 인덱스 추적
 
         Eigen::Matrix3d convertPoseToMatrix(const rcl_pose_graph_type::Node& node) const;
         Eigen::Matrix3d calDeltaTransform(const rcl_pose_graph_type::Node& from, const rcl_pose_graph_type::Node& to) const;
