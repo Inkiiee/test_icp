@@ -133,7 +133,10 @@ namespace rcl_painter{
         repaint();
     }
     void Painter::predictedPoseUpdate(double x, double y, double theta){
-        drawWorldMap();
+        // Throttle expensive world map redraws (every 5 frames)
+        if(++paint_frame_counter_ % 5 == 0){
+            drawWorldMap();
+        }
         drawPose(x, y, theta);
         repaint();
     }

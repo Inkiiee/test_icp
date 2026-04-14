@@ -20,6 +20,7 @@ namespace rcl_painter{
     private:
         double pos_r;
         bool is_lidar_visible = true;
+        int paint_frame_counter_ = 0;
         QPixmap pixmap, lader_pixmap, world_pixmap;
         QLabel* label;
         SharedMem* shared_mem = nullptr;

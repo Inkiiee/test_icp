@@ -2,13 +2,22 @@
 #define __RCL_MAP_BACKEND_EXECUTER_H__
 
 #include <set>
+#include <unordered_set>
 #include <map>
+#include <unordered_map>
 #include <vector>
 #include <Eigen/Dense>
 
 #include "slam_basic.h"
 
 namespace rcl_map_backend_type{
+    struct PairHash {
+        std::size_t operator()(const std::pair<int,int>& p) const noexcept {
+            auto h1 = std::hash<int>{}(p.first);
+            auto h2 = std::hash<int>{}(p.second);
+            return h1 ^ (h2 * 2654435761u);
+        }
+    };
     struct Weight{
         int hit_count;
         int miss_count;
@@ -21,7 +30,7 @@ namespace rcl_map_backend_type{
         double sensor_x = 0, sensor_y = 0; // 서브맵 생성 시 센서 위치
     };
     using weight_map_index_type = std::pair<int, int>;
-    using WeightMap = std::map<weight_map_index_type, Weight>;
+    using WeightMap = std::unordered_map<weight_map_index_type, Weight, PairHash>;
 }
 
 namespace rcl_map_backend{
@@ -38,7 +47,7 @@ namespace rcl_map_backend{
         weight_map_index_type get_map_index(double x, double y) const;
         bool isStaticCell(const Weight& weight) const;
         void touchWeightCell(weight_map_index_type index);
-        void markFreeRay(weight_map_index_type origin, weight_map_index_type target, const std::set<weight_map_index_type>& hit_cells);
+        void markFreeRay(weight_map_index_type origin, weight_map_index_type target, const std::unordered_set<weight_map_index_type, PairHash>& hit_cells);
     public:
         MapBackend(double resolution=0.05);
         ~MapBackend();

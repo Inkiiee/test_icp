@@ -16,9 +16,10 @@ namespace rcl_slam_basic_type{
 
 namespace rcl_slam_basic_transform{
     void rotationAndTranslation(double tx, double ty, double theta, std::vector<double>& x, std::vector<double>& y){
+        double cos_t = std::cos(theta), sin_t = std::sin(theta);
         for(size_t i=0; i<x.size(); i++){
-            double rx = std::cos(theta) * x[i] - std::sin(theta) * y[i] + tx;
-            double ry = std::sin(theta) * x[i] + std::cos(theta) * y[i] + ty;
+            double rx = cos_t * x[i] - sin_t * y[i] + tx;
+            double ry = sin_t * x[i] + cos_t * y[i] + ty;
             x[i] = rx; y[i] = ry;
         }
     }

@@ -26,13 +26,17 @@ namespace rcl_map_backend{
     void MapBackend::addPos(const std::vector<double>& x, const std::vector<double>& y){
         for(size_t i=0; i<x.size(); i++){
             weight_map_index_type index = get_map_index(x[i], y[i]);
-            touchWeightCell(index);
-            wm[index].hit_count += 1;
-            wm[index].last_seen_frame = frame_index;
+            auto& w = wm[index];
+            if(w.hit_count == 0 && w.miss_count == 0){
+                w.x = index.first * pos_r;
+                w.y = index.second * pos_r;
+            }
+            w.hit_count += 1;
+            w.last_seen_frame = frame_index;
         }
     }
 
-    void MapBackend::markFreeRay(weight_map_index_type origin, weight_map_index_type target, const std::set<weight_map_index_type>& hit_cells){
+    void MapBackend::markFreeRay(weight_map_index_type origin, weight_map_index_type target, const std::unordered_set<weight_map_index_type, PairHash>& hit_cells){
         int x0 = origin.first;
         int y0 = origin.second;
         int x1 = target.first;
@@ -73,7 +77,8 @@ namespace rcl_map_backend{
     }
 
     void MapBackend::updateOccupancyMap(double sensor_x, double sensor_y, const std::vector<double>& x, const std::vector<double>& y){
-        std::set<weight_map_index_type> hit_cells;
+        std::unordered_set<weight_map_index_type, PairHash> hit_cells;
+        hit_cells.reserve(x.size());
         weight_map_index_type origin = get_map_index(sensor_x, sensor_y);
 
         constexpr int kMaxCount = 20;  // hit/miss 상한 → 최근 관측에 비중
@@ -104,6 +109,8 @@ namespace rcl_map_backend{
     void MapBackend::getPos(std::vector<double>& x, std::vector<double>& y, bool static_only){
         x.clear();
         y.clear();
+        x.reserve(wm.size());
+        y.reserve(wm.size());
         
         for(const auto& entry : wm){
             const Weight& weight = entry.second;
@@ -120,6 +127,8 @@ namespace rcl_map_backend{
     void MapBackend::getAdjacentPos(const RobotBasePose& pose, std::vector<double>& x, std::vector<double>& y, double radius, bool static_only){
         x.clear();
         y.clear();
+        x.reserve(256);
+        y.reserve(256);
 
         double r2 = radius * radius;
         for(const auto& entry : wm){

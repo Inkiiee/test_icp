@@ -2,6 +2,7 @@
 #define __RCL_SCAN_MATCH_H__
 
 #include <map>
+#include <unordered_map>
 #include <Eigen/Dense>
 
 #include "slam_basic.h"
@@ -35,9 +36,16 @@ namespace rcl_scan_match_type{
     };
 
     // Types
+    struct CellIndexHash {
+        std::size_t operator()(const std::pair<int,int>& p) const noexcept {
+            auto h1 = std::hash<int>{}(p.first);
+            auto h2 = std::hash<int>{}(p.second);
+            return h1 ^ (h2 * 2654435761u);
+        }
+    };
     using cell_index_type = std::pair<int, int>;
-    using cell_info_type = std::map<cell_index_type, cell_info >;
-    using cells_type = std::map<cell_index_type, std::vector<cell> >;
+    using cell_info_type = std::unordered_map<cell_index_type, cell_info, CellIndexHash>;
+    using cells_type = std::unordered_map<cell_index_type, std::vector<cell>, CellIndexHash>;
     using cell_vector = std::vector<cell>;
     using cell_index_vector = std::vector<cell_index_type>;
 }

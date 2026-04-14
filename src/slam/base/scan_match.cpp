@@ -249,15 +249,17 @@ namespace rcl_scan_match{
         buildKDTree(cloudB, kdTree);
 
         for (iter = 0; iter < maxIter; ++iter) {
-            Eigen::MatrixXd H = Eigen::MatrixXd::Zero(3, 3);
-            Eigen::MatrixXd b = Eigen::MatrixXd::Zero(3, 1);
+            Eigen::Matrix3d H = Eigen::Matrix3d::Zero();
+            Eigen::Vector3d b = Eigen::Vector3d::Zero();
+            double cos_t = std::cos(theta), sin_t = std::sin(theta);
 
             std::vector<double> B_x(N), B_y(N);
+            std::vector<double> nx, ny;
             for (int i = 0; i < N; ++i) {
-                double x = std::cos(theta) * prev_x[i] - std::sin(theta) * prev_y[i] + tx;
-                double y = std::sin(theta) * prev_x[i] + std::cos(theta) * prev_y[i] + ty;
+                double x = cos_t * prev_x[i] - sin_t * prev_y[i] + tx;
+                double y = sin_t * prev_x[i] + cos_t * prev_y[i] + ty;
 
-                std::vector<double> nx, ny;
+                nx.clear(); ny.clear();
                 knnSearch(kdTree, cloudB, x, y, k, nx, ny);
                 double mx = 0, my = 0;
                 for (int j = 0; j < k; ++j) {
@@ -266,17 +268,15 @@ namespace rcl_scan_match{
                 B_x[i] = mx / k;
                 B_y[i] = my / k;
 
-                Eigen::MatrixXd Ji(2,3);
-                Ji(0, 0) = 1; Ji(0, 1) = 0; Ji(0, 2) = -(std::sin(theta) * prev_x[i] + std::cos(theta) * prev_y[i]);
-                Ji(1, 0) = 0; Ji(1, 1) = 1; Ji(1, 2) = (std::cos(theta) * prev_x[i] - std::sin(theta) * prev_y[i]);
-                Eigen::MatrixXd Hi = Ji.transpose() * Ji;
-                Eigen::MatrixXd ei(2, 1); ei(0, 0) = x - B_x[i]; ei(1, 0) = y - B_y[i];
-                Eigen::MatrixXd bi = Ji.transpose() * ei;
-                H += Hi;
-                b += bi;
+                Eigen::Matrix<double, 2, 3> Ji;
+                Ji(0, 0) = 1; Ji(0, 1) = 0; Ji(0, 2) = -(sin_t * prev_x[i] + cos_t * prev_y[i]);
+                Ji(1, 0) = 0; Ji(1, 1) = 1; Ji(1, 2) = (cos_t * prev_x[i] - sin_t * prev_y[i]);
+                Eigen::Vector2d ei(x - B_x[i], y - B_y[i]);
+                H.noalias() += Ji.transpose() * Ji;
+                b.noalias() += Ji.transpose() * ei;
             }
 
-            Eigen::MatrixXd delta = -H.fullPivLu().solve(b);
+            Eigen::Vector3d delta = -H.ldlt().solve(b);
             if(delta.norm() < epsilon){
                 iter++;
                 break;
@@ -314,15 +314,17 @@ namespace rcl_scan_match{
         buildKDTree(cloudB, kdTree);
 
         for (iter = 0; iter < maxIter; ++iter) {
-            Eigen::MatrixXd H = Eigen::MatrixXd::Zero(3, 3);
-            Eigen::MatrixXd b = Eigen::MatrixXd::Zero(3, 1);
+            Eigen::Matrix3d H = Eigen::Matrix3d::Zero();
+            Eigen::Vector3d b = Eigen::Vector3d::Zero();
+            double cos_t = std::cos(theta), sin_t = std::sin(theta);
 
             std::vector<double> B_x(N), B_y(N);
+            std::vector<double> nx, ny;
             for (int i = 0; i < N; ++i) {
-                double x = std::cos(theta) * prev_x[i] - std::sin(theta) * prev_y[i] + tx;
-                double y = std::sin(theta) * prev_x[i] + std::cos(theta) * prev_y[i] + ty;
+                double x = cos_t * prev_x[i] - sin_t * prev_y[i] + tx;
+                double y = sin_t * prev_x[i] + cos_t * prev_y[i] + ty;
 
-                std::vector<double> nx, ny;
+                nx.clear(); ny.clear();
                 knnSearch(kdTree, cloudB, x, y, k, nx, ny);
                 double mx = 0, my = 0;
                 for (int j = 0; j < k; ++j) {
@@ -353,18 +355,16 @@ namespace rcl_scan_match{
                 double n_x = normal(0);
                 double n_y = normal(1);
 
-                Eigen::MatrixXd Ji(1,3);
+                Eigen::Matrix<double, 1, 3> Ji;
                 Ji(0, 0) = n_x;
                 Ji(0, 1) = n_y;
-                Ji(0, 2) = (-std::sin(theta) * prev_x[i] - std::cos(theta) * prev_y[i]) * n_x + (std::cos(theta) * prev_x[i] - std::sin(theta) * prev_y[i]) * n_y;
-                Eigen::MatrixXd Hi = Ji.transpose() * Ji;
-                Eigen::MatrixXd ei(1, 1); ei(0, 0) = n_x  * (x - B_x[i]) +  n_y * (y - B_y[i]);
-                Eigen::MatrixXd bi = Ji.transpose() * ei;
-                H += Hi;
-                b += bi;
+                Ji(0, 2) = (-sin_t * prev_x[i] - cos_t * prev_y[i]) * n_x + (cos_t * prev_x[i] - sin_t * prev_y[i]) * n_y;
+                double ei = n_x * (x - B_x[i]) + n_y * (y - B_y[i]);
+                H.noalias() += Ji.transpose() * Ji;
+                b.noalias() += Ji.transpose() * ei;
             }
 
-            Eigen::MatrixXd delta = -H.fullPivLu().solve(b);
+            Eigen::Vector3d delta = -H.ldlt().solve(b);
             if(delta.norm() < epsilon){
                 iter++;
                 break;
@@ -413,10 +413,6 @@ namespace rcl_scan_match{
 
     void ScanMatcher::add_cell(cells_type& cells, cell c, double resolution) const {
         cell_index_type index = get_cell_index(c.x, c.y, resolution);
-
-        if(!contain_cell(cells, index))
-            cells[index] = cell_vector();
-
         cells[index].push_back(c);
     }
 
@@ -447,7 +443,7 @@ namespace rcl_scan_match{
 
         for(size_t c=0; c<index_list.size(); c++){
             cell_index_type key = index_list[c];
-            cell_vector grid_cell = cells[key];
+            const cell_vector& grid_cell = cells[key];
 
             double mean_x = 0, mean_y = 0;
             int size = grid_cell.size();
@@ -461,11 +457,8 @@ namespace rcl_scan_match{
 
             Eigen::Matrix2d cov = Eigen::Matrix2d::Zero();
             for(int i=0; i<size; i++){
-                Eigen::MatrixXd pos(2,1);
-                pos(0, 0) = grid_cell[i].x - mean_x;
-                pos(1, 0) = grid_cell[i].y - mean_y;
-
-                cov += (pos * pos.transpose());
+                Eigen::Vector2d pos(grid_cell[i].x - mean_x, grid_cell[i].y - mean_y);
+                cov.noalias() += (pos * pos.transpose());
             }
             cov /= (size - 1);
             if(cov.determinant() < 1e-6) continue;
@@ -481,18 +474,17 @@ namespace rcl_scan_match{
         int iter;
         for(iter = 0; iter < maxIter; iter++){
             Eigen::Matrix3d H = Eigen::Matrix3d::Zero();
-            Eigen::MatrixXd b(3,1);
-            b(0, 0) = b(1, 0) = b(2, 0) = 0;
+            Eigen::Vector3d b = Eigen::Vector3d::Zero();
+            double sin_theta = std::sin(theta);
+            double cos_theta = std::cos(theta);
             for(int i=0; i<N; i++){
                 double px = prev_x[i];
                 double py = prev_y[i];
-                double sin_theta = std::sin(theta);
-                double cos_theta = std::cos(theta);
 
                 double x = cos_theta * px - sin_theta * py + tx;
                 double y = sin_theta * px + cos_theta * py + ty;
 
-                Eigen::MatrixXd Ji(2,3);
+                Eigen::Matrix<double, 2, 3> Ji;
                 Ji(0, 0) = -sin_theta * px - cos_theta * py;
                 Ji(0, 1) = 1;
                 Ji(0, 2) = 0;
@@ -502,18 +494,17 @@ namespace rcl_scan_match{
                 Ji(1, 2) = 1;
 
                 cell_index_type cell_index = get_cell_index(x, y, resolution);
-                if(!contain_cell_info(cells_info, cell_index)) continue;
+                auto it = cells_info.find(cell_index);
+                if(it == cells_info.end()) continue;
 
-                cell_info info = cells_info[cell_index];
-                Eigen::MatrixXd r(2, 1);
-                r(0, 0) = x - info.mean_x;
-                r(1, 0) = y - info.mean_y;
+                const cell_info& info = it->second;
+                Eigen::Vector2d r(x - info.mean_x, y - info.mean_y);
 
                 H += (Ji.transpose() * info.cov_inv * Ji);
                 b += (Ji.transpose() * info.cov_inv * r);
             }
 
-            Eigen::MatrixXd delta = H.ldlt().solve(b);
+            Eigen::Vector3d delta = H.ldlt().solve(b);
             if (delta.norm() > 1.0) delta *= 1.0 / delta.norm(); // clip
             if(delta.norm() < epsilon){ iter++; break;}
 
@@ -589,15 +580,24 @@ namespace rcl_scan_match{
         int kernel_radius = static_cast<int>(std::ceil(smear_sigma * 3.0 / resolution));
         double inv_2sigma2 = 1.0 / (2.0 * smear_sigma * smear_sigma);
 
-        // Stamp each reference point with a Gaussian kernel
+        // Precompute Gaussian kernel
+        int kernel_size = 2 * kernel_radius + 1;
+        std::vector<double> kernel(kernel_size * kernel_size);
+        for (int dy = -kernel_radius; dy <= kernel_radius; ++dy) {
+            for (int dx = -kernel_radius; dx <= kernel_radius; ++dx) {
+                double dist2 = (dx * resolution) * (dx * resolution) + (dy * resolution) * (dy * resolution);
+                kernel[(dy + kernel_radius) * kernel_size + (dx + kernel_radius)] = std::exp(-dist2 * inv_2sigma2);
+            }
+        }
+
+        // Stamp each reference point with the precomputed kernel
         for (size_t i = 0; i < ref_x.size(); ++i) {
             int cx = static_cast<int>(std::round((ref_x[i] - min_x) / resolution));
             int cy = static_cast<int>(std::round((ref_y[i] - min_y) / resolution));
 
             for (int dy = -kernel_radius; dy <= kernel_radius; ++dy) {
                 for (int dx = -kernel_radius; dx <= kernel_radius; ++dx) {
-                    double dist2 = (dx * resolution) * (dx * resolution) + (dy * resolution) * (dy * resolution);
-                    double val = std::exp(-dist2 * inv_2sigma2);
+                    double val = kernel[(dy + kernel_radius) * kernel_size + (dx + kernel_radius)];
                     lut.set(cx + dx, cy + dy, val);
                 }
             }
