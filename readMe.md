@@ -352,6 +352,7 @@ g2o를 쓴다면 `LinearSolverCholmod` 또는 `LinearSolverCSparse`가 일반적
 최근에는 concurrency 안정성과 pose graph fallback 성능이 일부 개선된 상태다.
 
 ## 구조
+
 flowchart LR
     A["LiDAR topic"]
     B["Bridge::scanDataReceived"]
