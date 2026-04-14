@@ -393,6 +393,3 @@ flowchart LR
     F -- "QueuedConnection" --> N
     G -- "QueuedConnection" --> N
 ```
-
-    F -- "QueuedConnection" --> N
-    G -- "QueuedConnection" --> N
