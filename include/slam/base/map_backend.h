@@ -1,9 +1,7 @@
 #ifndef __RCL_MAP_BACKEND_EXECUTER_H__
 #define __RCL_MAP_BACKEND_EXECUTER_H__
 
-#include <set>
 #include <unordered_set>
-#include <map>
 #include <unordered_map>
 #include <vector>
 #include <Eigen/Dense>
