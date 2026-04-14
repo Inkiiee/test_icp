@@ -1,5 +1,8 @@
 #include "map_backend.h"
 
+#include <cmath>
+#include <algorithm>
+
 namespace rcl_map_backend_type{
     Weight::Weight():hit_count(0), miss_count(0), last_seen_frame(0), x(0), y(0){}
 }
@@ -127,19 +130,33 @@ namespace rcl_map_backend{
     void MapBackend::getAdjacentPos(const RobotBasePose& pose, std::vector<double>& x, std::vector<double>& y, double radius, bool static_only){
         x.clear();
         y.clear();
-        x.reserve(256);
-        y.reserve(256);
+
+        // 반경 내 그리드 셀 범위를 직접 계산하여 해당 셀만 조회
+        // O(전체맵) → O((2*radius/pos_r)^2)
+        int min_cx = static_cast<int>(std::floor((pose.tx - radius) / pos_r));
+        int max_cx = static_cast<int>(std::ceil((pose.tx + radius) / pos_r));
+        int min_cy = static_cast<int>(std::floor((pose.ty - radius) / pos_r));
+        int max_cy = static_cast<int>(std::ceil((pose.ty + radius) / pos_r));
+
+        int range = (max_cx - min_cx + 1) * (max_cy - min_cy + 1);
+        x.reserve(std::min(range, static_cast<int>(wm.size())));
+        y.reserve(std::min(range, static_cast<int>(wm.size())));
 
         double r2 = radius * radius;
-        for(const auto& entry : wm){
-            const Weight& weight = entry.second;
-            if(static_only && !isStaticCell(weight)) continue;
+        for(int cx = min_cx; cx <= max_cx; cx++){
+            for(int cy = min_cy; cy <= max_cy; cy++){
+                auto it = wm.find({cx, cy});
+                if(it == wm.end()) continue;
 
-            double dx = weight.x - pose.tx;
-            double dy = weight.y - pose.ty;
-            if(dx * dx + dy * dy <= r2){
-                x.push_back(weight.x);
-                y.push_back(weight.y);
+                const Weight& weight = it->second;
+                if(static_only && !isStaticCell(weight)) continue;
+
+                double dx = weight.x - pose.tx;
+                double dy = weight.y - pose.ty;
+                if(dx * dx + dy * dy <= r2){
+                    x.push_back(weight.x);
+                    y.push_back(weight.y);
+                }
             }
         }
     }
