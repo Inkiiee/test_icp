@@ -2,6 +2,7 @@
 #include "slam_basic.h"
 #include "teleopt.hpp"
 
+#include <chrono>
 #include <QDebug>
 #include <QPushButton>
 
@@ -137,11 +138,23 @@ namespace rcl_painter{
         paint_busy_ = false;
     }
     void Painter::predictedPoseUpdate(double x, double y, double theta){
+        auto t0 = std::chrono::steady_clock::now();
         // Throttle expensive world map redraws (every 5 frames)
         if(++paint_frame_counter_ % 5 == 0){
             drawWorldMap();
         }
+        auto t1 = std::chrono::steady_clock::now();
         drawPose(x, y, theta);
+        auto t2 = std::chrono::steady_clock::now();
         repaint();
+        auto t3 = std::chrono::steady_clock::now();
+
+        auto us_world = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+        auto us_pose = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+        auto us_repaint = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count();
+        if(paint_frame_counter_ % 20 == 0){
+            qDebug() << "[TIMING painter] worldMap=" << us_world << "us drawPose=" << us_pose
+                     << "us repaint=" << us_repaint << "us total=" << (us_world + us_pose + us_repaint) << "us";
+        }
     }
 }

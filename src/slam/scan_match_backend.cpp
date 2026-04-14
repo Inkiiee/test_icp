@@ -3,6 +3,7 @@
 #include "my_pose_graph.h"
 
 #include <cmath>
+#include <chrono>
 #include <QDebug>
 
 namespace rcl_scan_match_backend{
@@ -124,6 +125,8 @@ namespace rcl_scan_match_backend{
         }
 
         // ── 거리 게이팅 ──
+        auto t_start = std::chrono::steady_clock::now();
+
         double travel_xy = std::sqrt((map_x - last_match_x_) * (map_x - last_match_x_) + (map_y - last_match_y_) * (map_y - last_match_y_));
         double travel_theta = std::abs(normalizeAngle(map_theta - last_match_theta_));
         bool moved_enough = (travel_xy >= kMinTravelDistance || travel_theta >= kMinTravelAngle);
@@ -178,6 +181,7 @@ namespace rcl_scan_match_backend{
         }
 
         // 매칭 대상: local_map + world_map에서 로봇 근처 다운샘플된 포인트
+        auto t_submap = std::chrono::steady_clock::now();
         match_ref_map_.clearMap();
         std::vector<double> pixel_x, pixel_y, world_x, world_y;
         local_map.getPos(world_x, world_y);
@@ -192,8 +196,12 @@ namespace rcl_scan_match_backend{
         match_ref_map_.addPos(world_x, world_y);
         match_ref_map_.getPos(world_x, world_y);
 
+        auto t_ref = std::chrono::steady_clock::now();
+        int ref_pts = static_cast<int>(world_x.size());
+
         if(!world_x.empty()){
             std::vector<double> scan_x(latest_xs.begin(), latest_xs.end()), scan_y(latest_ys.begin(), latest_ys.end());
+            int scan_pts = static_cast<int>(scan_x.size());
 
             // odom 변위가 충분할 때만 CSM, 그 외엔 NDT만
             double disp_xy = std::sqrt((map_x - last_csm_x_) * (map_x - last_csm_x_) + (map_y - last_csm_y_) * (map_y - last_csm_y_));
@@ -203,17 +211,35 @@ namespace rcl_scan_match_backend{
             Param p;
             if(need_csm){
                 // LUT 재빌드 & CSM → NDT
+                auto t_lut0 = std::chrono::steady_clock::now();
                 cached_lut_ = scan_matcher.buildLookupTable(world_x, world_y, 0.02, 0.05);
                 lut_valid_ = true;
+                auto t_lut1 = std::chrono::steady_clock::now();
+
                 p = scan_matcher.runCSM(scan_x, scan_y, world_x, world_y, map_x, map_y, map_theta,
                         0.3, 0.2, 0.05, 0.02, 0.005, 0.002, 0.02, 0.05);
+                auto t_csm1 = std::chrono::steady_clock::now();
+
                 p = scan_matcher.runNDT(scan_x, scan_y, world_x, world_y, p.tx, p.ty, p.theta, 0.1, 0.05, 30, 1e-6);
+                auto t_ndt1 = std::chrono::steady_clock::now();
+
                 last_csm_x_ = p.tx;
                 last_csm_y_ = p.ty;
                 last_csm_theta_ = p.theta;
+
+                auto ms_lut = std::chrono::duration_cast<std::chrono::microseconds>(t_lut1 - t_lut0).count();
+                auto ms_csm = std::chrono::duration_cast<std::chrono::microseconds>(t_csm1 - t_lut1).count();
+                auto ms_ndt = std::chrono::duration_cast<std::chrono::microseconds>(t_ndt1 - t_csm1).count();
+                qDebug() << "[TIMING lidarUpdate CSM] ref=" << ref_pts << " scan=" << scan_pts
+                         << " LUT=" << ms_lut << "us CSM=" << ms_csm << "us NDT=" << ms_ndt << "us";
             } else {
                 // NDT만 (odom이 좋은 초기값)
+                auto t_ndt0 = std::chrono::steady_clock::now();
                 p = scan_matcher.runNDT(scan_x, scan_y, world_x, world_y, map_x, map_y, map_theta, 0.1, 0.05, 30, 1e-6);
+                auto t_ndt1 = std::chrono::steady_clock::now();
+                auto ms_ndt = std::chrono::duration_cast<std::chrono::microseconds>(t_ndt1 - t_ndt0).count();
+                qDebug() << "[TIMING lidarUpdate NDT-only] ref=" << ref_pts << " scan=" << scan_pts
+                         << " NDT=" << ms_ndt << "us";
             }
             p.theta = normalizeAngle(p.theta);
 
@@ -241,6 +267,13 @@ namespace rcl_scan_match_backend{
         last_match_x_ = map_x;
         last_match_y_ = map_y;
         last_match_theta_ = map_theta;
+
+        auto t_end = std::chrono::steady_clock::now();
+        auto ms_submap = std::chrono::duration_cast<std::chrono::microseconds>(t_submap - t_start).count();
+        auto ms_ref = std::chrono::duration_cast<std::chrono::microseconds>(t_ref - t_submap).count();
+        auto ms_total = std::chrono::duration_cast<std::chrono::microseconds>(t_end - t_start).count();
+        qDebug() << "[TIMING lidarUpdate TOTAL] submap=" << ms_submap << "us refBuild=" << ms_ref
+                 << "us total=" << ms_total << "us";
 
         emit scanUpdated(pixel_x, pixel_y);
         emit predictedPose(map_x, map_y, map_theta);

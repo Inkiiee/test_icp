@@ -1,6 +1,7 @@
 #include "loop_detecter.h"
 
 #include <algorithm>
+#include <chrono>
 #include <QDebug>
 
 namespace rcl_loop_detecter{
@@ -103,25 +104,41 @@ namespace rcl_loop_detecter{
 
             if(std::sqrt(dx * dx + dy * dy) < 1.5){
                 Node init = relativePose(temp, p);
+
+                auto t_lut0 = std::chrono::steady_clock::now();
                 LookupTable lut = scan_matcher.buildLookupTable(candidate_submap.x, candidate_submap.y, 0.02, 0.05);
+                auto t_lut1 = std::chrono::steady_clock::now();
+
                 double init_score = scan_matcher.scoreCandidate(lut, current_submap.x, current_submap.y, init.tx, init.ty, init.theta);
                 double init_avg_score = current_submap.x.empty() ? 0.0 : init_score / current_submap.x.size();
                 if(init_avg_score < kMinInitialAvgScore){
                     continue;
                 }
 
+                auto t_csm0 = std::chrono::steady_clock::now();
                 // CSM: 넓은 범위에서 전수 탐색 → NDT: 정밀 보정
                 Param par = scan_matcher.runCSM(current_submap.x, current_submap.y, candidate_submap.x, candidate_submap.y,
                                 init.tx, init.ty, init.theta,
                                 /*search_xy=*/0.5, /*search_theta=*/0.35);
+                auto t_csm1 = std::chrono::steady_clock::now();
+
                 par = scan_matcher.runNDT(current_submap.x, current_submap.y, candidate_submap.x, candidate_submap.y,
                             par.tx, par.ty, par.theta, 0.1, 0.05, 30, 1e-6);
+                auto t_ndt1 = std::chrono::steady_clock::now();
 
                 double rmse = scan_matcher.cal_rmse(candidate_submap.x, candidate_submap.y, current_submap.x, current_submap.y, par);
 
                 // CSM score로 검증: 평균 score가 높아야 진짜 루프
                 double score = scan_matcher.scoreCandidate(lut, current_submap.x, current_submap.y, par.tx, par.ty, par.theta);
                 double avg_score = current_submap.x.empty() ? 0.0 : score / current_submap.x.size();
+
+                auto us_lut = std::chrono::duration_cast<std::chrono::microseconds>(t_lut1 - t_lut0).count();
+                auto us_csm = std::chrono::duration_cast<std::chrono::microseconds>(t_csm1 - t_csm0).count();
+                auto us_ndt = std::chrono::duration_cast<std::chrono::microseconds>(t_ndt1 - t_csm1).count();
+                qDebug() << "[TIMING detectLoop candidate" << candidate_index << "]"
+                         << " LUT=" << us_lut << "us CSM=" << us_csm << "us NDT=" << us_ndt << "us"
+                         << " refPts=" << candidate_submap.x.size() << " scanPts=" << current_submap.x.size()
+                         << " avg_score=" << avg_score << " rmse=" << rmse;
 
                 if(rmse < 0.5 && avg_score > 0.3){
                     bool should_optimize = false;
@@ -147,11 +164,18 @@ namespace rcl_loop_detecter{
                             old_node = pose_graph->getPose(last_node_index);
                         }
 
+                        auto t_opt0 = std::chrono::steady_clock::now();
                         pose_graph->loopOptimize();
+                        auto t_opt1 = std::chrono::steady_clock::now();
                         pending_loop_edges_ = 0;
 
                         Node new_node = pose_graph->getPose(last_node_index);
                         Eigen::Matrix3d delta = calDeltaTransform(old_node, new_node);
+
+                        auto us_opt = std::chrono::duration_cast<std::chrono::microseconds>(t_opt1 - t_opt0).count();
+                        qDebug() << "[TIMING loopOptimize] poses=" << pose_graph->getPoseCount()
+                                 << " time=" << us_opt << "us (" << us_opt / 1000 << "ms)";
+
                         emit optimizedPoseUpdated(last_node_index, delta);
                     }
 

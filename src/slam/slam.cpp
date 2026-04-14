@@ -1,7 +1,9 @@
 #include "slam.h"
 #include "slam_basic.h"
 
+#include <chrono>
 #include <QThread>
+#include <QDebug>
 
 namespace rcl_slam{
     using namespace rcl_scan_match_backend;
@@ -72,6 +74,7 @@ namespace rcl_slam{
     }
 
     void SlamSystem::rebuildMap(){
+        auto t0 = std::chrono::steady_clock::now();
         auto world_map = backend->getWorldMap();
         auto pose_graph = backend->getPoseGraph();
         auto sub_maps = backend->getSubMaps();
@@ -85,6 +88,7 @@ namespace rcl_slam{
             pose_snapshot = pose_graph->getPoseSnapshot();
             count = std::min(pose_snapshot.size(), sub_maps->size());
         }
+        auto t1 = std::chrono::steady_clock::now();
 
         // 변환 연산은 lock 없이 수행
         struct TransformedSubmap {
@@ -106,6 +110,7 @@ namespace rcl_slam{
             transformed[i].sensor_x = ct * sx - st * sy + pose_snapshot[i].tx;
             transformed[i].sensor_y = st * sx + ct * sy + pose_snapshot[i].ty;
         }
+        auto t2 = std::chrono::steady_clock::now();
 
         // 맵 갱신만 짧게 lock
         {
@@ -116,5 +121,14 @@ namespace rcl_slam{
                                               transformed[i].x, transformed[i].y);
             }
         }
+        auto t3 = std::chrono::steady_clock::now();
+
+        auto us_snap = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+        auto us_xform = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+        auto us_map = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count();
+        auto us_total = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t0).count();
+        qDebug() << "[TIMING rebuildMap] submaps=" << count
+                 << " snapshot=" << us_snap << "us transform=" << us_xform
+                 << "us mapUpdate=" << us_map << "us total=" << us_total << "us (" << us_total / 1000 << "ms)";
     }
 }
