@@ -216,8 +216,8 @@ namespace rcl_scan_match_backend{
                 lut_valid_ = true;
                 auto t_lut1 = std::chrono::steady_clock::now();
 
-                p = scan_matcher.runCSM(scan_x, scan_y, world_x, world_y, map_x, map_y, map_theta,
-                        0.3, 0.2, 0.05, 0.02, 0.005, 0.002, 0.02, 0.05);
+                p = scan_matcher.runCSM(scan_x, scan_y, cached_lut_, map_x, map_y, map_theta,
+                        0.3, 0.2, 0.05, 0.02, 0.005, 0.002);
                 auto t_csm1 = std::chrono::steady_clock::now();
 
                 p = scan_matcher.runNDT(scan_x, scan_y, world_x, world_y, p.tx, p.ty, p.theta, 0.1, 0.05, 30, 1e-6);

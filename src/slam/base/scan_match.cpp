@@ -624,6 +624,124 @@ namespace rcl_scan_match{
         return score;
     }
 
+    // ── Optimized CSM: pre-rotation per θ + integer grid + coarse scan downsampling ──
+    Param ScanMatcher::runCSM(
+        std::vector<double>& scan_x, std::vector<double>& scan_y,
+        const LookupTable& lut,
+        double init_tx, double init_ty, double init_theta,
+        double search_xy, double search_theta,
+        double coarse_xy_res, double coarse_angle_res,
+        double fine_xy_res, double fine_angle_res)
+    {
+        Param best;
+        best.tx = init_tx;
+        best.ty = init_ty;
+        best.theta = init_theta;
+
+        if (scan_x.empty() || lut.data.empty()) return best;
+
+        const size_t N = scan_x.size();
+        const double inv_res = 1.0 / lut.resolution;
+        const int W = lut.width, H = lut.height;
+        const double ox = lut.origin_x, oy = lut.origin_y;
+        const double* lut_data = lut.data.data();
+
+        // ── Downsample scan for coarse pass (every 3rd point) ──
+        constexpr size_t kCoarseStride = 3;
+        const size_t N_coarse = (N + kCoarseStride - 1) / kCoarseStride;
+        std::vector<double> cscan_x(N_coarse), cscan_y(N_coarse);
+        for (size_t i = 0, j = 0; i < N && j < N_coarse; i += kCoarseStride, ++j) {
+            cscan_x[j] = scan_x[i];
+            cscan_y[j] = scan_y[i];
+        }
+
+        std::vector<int> grid_x(N), grid_y(N);
+        std::vector<int> coarse_grid_x(N_coarse), coarse_grid_y(N_coarse);
+
+        // ── Pass 1: Coarse search ──
+        double best_score = -1.0;
+
+        for (double dtheta = -search_theta; dtheta <= search_theta; dtheta += coarse_angle_res) {
+            double cand_theta = init_theta + dtheta;
+            double cos_t = std::cos(cand_theta);
+            double sin_t = std::sin(cand_theta);
+
+            // Pre-rotate downsampled scan → integer grid coords
+            for (size_t i = 0; i < N_coarse; ++i) {
+                coarse_grid_x[i] = static_cast<int>(std::round((cos_t * cscan_x[i] - sin_t * cscan_y[i]) * inv_res));
+                coarse_grid_y[i] = static_cast<int>(std::round((sin_t * cscan_x[i] + cos_t * cscan_y[i]) * inv_res));
+            }
+
+            for (double dx = -search_xy; dx <= search_xy; dx += coarse_xy_res) {
+                int off_x = static_cast<int>(std::round((init_tx + dx - ox) * inv_res));
+                for (double dy = -search_xy; dy <= search_xy; dy += coarse_xy_res) {
+                    int off_y = static_cast<int>(std::round((init_ty + dy - oy) * inv_res));
+
+                    double score = 0.0;
+                    for (size_t i = 0; i < N_coarse; ++i) {
+                        int gx = coarse_grid_x[i] + off_x;
+                        int gy = coarse_grid_y[i] + off_y;
+                        if (static_cast<unsigned>(gx) < static_cast<unsigned>(W) &&
+                            static_cast<unsigned>(gy) < static_cast<unsigned>(H))
+                            score += lut_data[gy * W + gx];
+                    }
+                    if (score > best_score) {
+                        best_score = score;
+                        best.tx = init_tx + dx;
+                        best.ty = init_ty + dy;
+                        best.theta = cand_theta;
+                    }
+                }
+            }
+        }
+
+        // ── Pass 2: Fine search around coarse best (full scan points) ──
+        double fine_tx = best.tx;
+        double fine_ty = best.ty;
+        double fine_theta = best.theta;
+        best_score = -1.0;
+
+        for (double dtheta = -coarse_angle_res; dtheta <= coarse_angle_res; dtheta += fine_angle_res) {
+            double cand_theta = fine_theta + dtheta;
+            double cos_t = std::cos(cand_theta);
+            double sin_t = std::sin(cand_theta);
+
+            // Pre-rotate all scan points → integer grid coords
+            for (size_t i = 0; i < N; ++i) {
+                grid_x[i] = static_cast<int>(std::round((cos_t * scan_x[i] - sin_t * scan_y[i]) * inv_res));
+                grid_y[i] = static_cast<int>(std::round((sin_t * scan_x[i] + cos_t * scan_y[i]) * inv_res));
+            }
+
+            for (double dx = -coarse_xy_res; dx <= coarse_xy_res; dx += fine_xy_res) {
+                int off_x = static_cast<int>(std::round((fine_tx + dx - ox) * inv_res));
+                for (double dy = -coarse_xy_res; dy <= coarse_xy_res; dy += fine_xy_res) {
+                    int off_y = static_cast<int>(std::round((fine_ty + dy - oy) * inv_res));
+
+                    double score = 0.0;
+                    for (size_t i = 0; i < N; ++i) {
+                        int gx = grid_x[i] + off_x;
+                        int gy = grid_y[i] + off_y;
+                        if (static_cast<unsigned>(gx) < static_cast<unsigned>(W) &&
+                            static_cast<unsigned>(gy) < static_cast<unsigned>(H))
+                            score += lut_data[gy * W + gx];
+                    }
+                    if (score > best_score) {
+                        best_score = score;
+                        best.tx = fine_tx + dx;
+                        best.ty = fine_ty + dy;
+                        best.theta = cand_theta;
+                    }
+                }
+            }
+        }
+
+        best.theta = normalizeAngle(best.theta);
+        best.rmse = (N > 0) ? (1.0 - best_score / static_cast<double>(N)) : 999.0;
+
+        return best;
+    }
+
+    // Original overload: builds LUT then delegates to optimized version
     Param ScanMatcher::runCSM(
         std::vector<double>& scan_x, std::vector<double>& scan_y,
         std::vector<double>& ref_x, std::vector<double>& ref_y,
@@ -633,62 +751,12 @@ namespace rcl_scan_match{
         double fine_xy_res, double fine_angle_res,
         double lut_resolution, double smear_sigma)
     {
-        Param best;
-        best.tx = init_tx;
-        best.ty = init_ty;
-        best.theta = init_theta;
-
-        if (scan_x.empty() || ref_x.empty()) return best;
-
-        // Build smeared lookup table from reference points (map)
+        if (scan_x.empty() || ref_x.empty()) {
+            Param p; p.tx = init_tx; p.ty = init_ty; p.theta = init_theta; return p;
+        }
         LookupTable lut = buildLookupTable(ref_x, ref_y, lut_resolution, smear_sigma);
-
-        // ── Pass 1: Coarse search ──
-        double best_score = -1.0;
-
-        for (double dtheta = -search_theta; dtheta <= search_theta; dtheta += coarse_angle_res) {
-            double cand_theta = init_theta + dtheta;
-            for (double dx = -search_xy; dx <= search_xy; dx += coarse_xy_res) {
-                for (double dy = -search_xy; dy <= search_xy; dy += coarse_xy_res) {
-                    double cand_tx = init_tx + dx;
-                    double cand_ty = init_ty + dy;
-                    double score = scoreCandidate(lut, scan_x, scan_y, cand_tx, cand_ty, cand_theta);
-                    if (score > best_score) {
-                        best_score = score;
-                        best.tx = cand_tx;
-                        best.ty = cand_ty;
-                        best.theta = cand_theta;
-                    }
-                }
-            }
-        }
-
-        // ── Pass 2: Fine search around coarse best ──
-        double fine_tx = best.tx;
-        double fine_ty = best.ty;
-        double fine_theta = best.theta;
-        best_score = -1.0;
-
-        for (double dtheta = -coarse_angle_res; dtheta <= coarse_angle_res; dtheta += fine_angle_res) {
-            double cand_theta = fine_theta + dtheta;
-            for (double dx = -coarse_xy_res; dx <= coarse_xy_res; dx += fine_xy_res) {
-                for (double dy = -coarse_xy_res; dy <= coarse_xy_res; dy += fine_xy_res) {
-                    double cand_tx = fine_tx + dx;
-                    double cand_ty = fine_ty + dy;
-                    double score = scoreCandidate(lut, scan_x, scan_y, cand_tx, cand_ty, cand_theta);
-                    if (score > best_score) {
-                        best_score = score;
-                        best.tx = cand_tx;
-                        best.ty = cand_ty;
-                        best.theta = cand_theta;
-                    }
-                }
-            }
-        }
-
-        best.theta = normalizeAngle(best.theta);
-        best.rmse = (scan_x.size() > 0) ? (1.0 - best_score / scan_x.size()) : 999.0;
-
-        return best;
+        return runCSM(scan_x, scan_y, lut, init_tx, init_ty, init_theta,
+                      search_xy, search_theta, coarse_xy_res, coarse_angle_res,
+                      fine_xy_res, fine_angle_res);
     }
 }

@@ -120,6 +120,13 @@ namespace rcl_scan_match{
             double coarse_xy_res = 0.05, double coarse_angle_res = 0.0175,
             double fine_xy_res = 0.005, double fine_angle_res = 0.00175,
             double lut_resolution = 0.02, double smear_sigma = 0.05);
+        Param runCSM(
+            std::vector<double>& scan_x, std::vector<double>& scan_y,
+            const LookupTable& lut,
+            double init_tx, double init_ty, double init_theta,
+            double search_xy = 0.5, double search_theta = 0.35,
+            double coarse_xy_res = 0.05, double coarse_angle_res = 0.0175,
+            double fine_xy_res = 0.005, double fine_angle_res = 0.00175);
     };
 }
 
