@@ -190,6 +190,7 @@ flowchart TD
     M --> N[emit optimizedPoseUpdated]
 ```
 
+<img width="887" height="823" alt="슬램" src="https://github.com/user-attachments/assets/df08429a-0dd7-406e-8b4c-fc563d1885f6" />
 
 ## 주요 클래스 역할
 
@@ -525,97 +526,3 @@ g2o를 쓴다면 `LinearSolverCholmod` 또는 `LinearSolverCSparse`가 일반적
 
 구조는 이미 전체 파이프라인이 연결되어 있고,
 최근에는 concurrency 안정성과 pose graph fallback 성능이 일부 개선된 상태다.
-
-
-## 리팩토링 이력
-
-### 1. `PairHash` 통합
-
-**이전**: `map_backend.h`의 `PairHash`와 `scan_match.h`의 `CellIndexHash`가 동일한 해시 함수를 각각 정의.
-
-**이후**: `slam_basic.h`에 `PairHash`를 공통 정의로 이동. 양쪽 모두 `using` alias로 참조.
-
-```
-변경 전                         변경 후
-┌──────────────┐              ┌──────────────┐
-│ map_backend.h│ PairHash     │ slam_basic.h │ PairHash (공통 정의)
-├──────────────┤              ├──────────────┤
-│ scan_match.h │ CellIndexHash│ map_backend.h│ using PairHash = ...
-└──────────────┘              │ scan_match.h │ using CellIndexHash = ...
-                              └──────────────┘
-```
-
-### 2. ROS 구독 노드 템플릿 기반 클래스 (`RosSubscriberNode`)
-
-**이전**: `LaserScan`, `OdomLoader`, `ImuLoader` 3개 클래스가 각각 동일한 ROS2 구독 설정 보일러플레이트를 반복 (~85% 중복).
-
-**이후**: `RosSubscriberNode<MsgType, Derived>` CRTP 템플릿 기반 클래스로 공통화. 각 파생 클래스는 `received()` 메서드만 구현.
-
-```mermaid
-graph TD
-    subgraph 변경 전
-        A1[rclcpp::Node] --> B1[LaserScan<br/>구독 설정 + 콜백]
-        A1 --> C1[OdomLoader<br/>구독 설정 + 콜백]
-        A1 --> D1[ImuLoader<br/>구독 설정 + 콜백]
-    end
-
-    subgraph 변경 후
-        A2[rclcpp::Node] --> T[RosSubscriberNode<br/>공통 구독 설정]
-        T --> B2[LaserScan<br/>received만 구현]
-        T --> C2[OdomLoader<br/>received만 구현]
-        T --> D2[ImuLoader<br/>received만 구현]
-    end
-```
-
-**생성된 파일**: `include/test_icp/ros_subscriber_node.hpp`
-
-**변경된 파일**:
-- `include/test_icp/sensor_receive_node.hpp` — 상속 대상 변경, 중복 멤버 제거
-- `include/test_icp/odom_receive_node.hpp` — 동일
-- `include/test_icp/imu_receive_node.hpp` — 동일
-- `src/test_icp/sensor_receive_node.cpp` — 생성자 1줄로 축소, `bridge` → `bridge_`
-- `src/test_icp/odom_receive_node.cpp` — 동일
-- `src/test_icp/imu_receive_node.cpp` — 동일
-
-### 3. `CloudTree` RAII 헬퍼 (`ScanMatcher` 내부)
-
-**이전**: `cal_rmse`, `cal_inlier_ratio`, `runICP`, `runGauseNewtonICP`, `runGauseNewtonICP2` 5개 함수에서 `PointCloud` 생성 → `buildKDTree` → 사용 → `delete` 패턴이 반복. 수동 `delete`로 인한 메모리 누수 위험.
-
-**이후**: `CloudTree` 구조체가 생성자에서 `PointCloud` + `KDTree`를 함께 빌드하고, 소멸자에서 자동 해제.
-
-```mermaid
-graph LR
-    subgraph 변경 전
-        A[PointCloud 생성] --> B[buildKDTree]
-        B --> C[사용]
-        C --> D["delete kdTree ← 누락 위험"]
-    end
-
-    subgraph 변경 후
-        E["CloudTree ct(x, y)"] --> F[자동 빌드]
-        F --> G["ct.tree / ct.cloud 사용"]
-        G --> H["~CloudTree() 자동 해제"]
-    end
-```
-
-**변경된 파일**:
-- `include/slam/base/scan_match.h` — `CloudTree` 구조체 선언
-- `src/slam/base/scan_match.cpp` — 구현 + 5개 함수에서 수동 패턴 제거
-
-### 4. `worldToPixel` 헬퍼 (`Painter`)
-
-**이전**: `drawScan()`, `drawPose()`, `drawWorldMap()` 3곳에서 동일한 좌표 변환 계산이 반복.
-
-**이후**: `worldToPixel(wx, wy)` 익명 네임스페이스 함수로 추출.
-
-**변경된 파일**: `src/painter.cpp`
-
-### 리팩토링 요약 표
-
-| 항목 | 제거된 중복 | 영향 파일 수 | 비고 |
-|------|-----------|------------|------|
-| `PairHash` 통합 | ~12줄 | 3 | `slam_basic.h`, `map_backend.h`, `scan_match.h` |
-| `RosSubscriberNode` | ~80줄 | 7 | CRTP 템플릿 + 3 헤더 + 3 소스 |
-| `CloudTree` RAII | ~50줄 | 2 | 메모리 누수 위험 해소 |
-| `worldToPixel` | ~12줄 | 1 | 좌표 변환 상수 중앙화 |
-| **합계** | **~150줄** | **11** | |
