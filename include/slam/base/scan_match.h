@@ -36,13 +36,7 @@ namespace rcl_scan_match_type{
     };
 
     // Types
-    struct CellIndexHash {
-        std::size_t operator()(const std::pair<int,int>& p) const noexcept {
-            auto h1 = std::hash<int>{}(p.first);
-            auto h2 = std::hash<int>{}(p.second);
-            return h1 ^ (h2 * 2654435761u);
-        }
-    };
+    using CellIndexHash = rcl_slam_basic_type::PairHash;
     using cell_index_type = std::pair<int, int>;
     using cell_info_type = std::unordered_map<cell_index_type, cell_info, CellIndexHash>;
     using cells_type = std::unordered_map<cell_index_type, std::vector<cell>, CellIndexHash>;
@@ -57,6 +51,16 @@ namespace rcl_scan_match{
 
     class ScanMatcher{
     private:
+        // RAII helper: builds PointCloud + KDTree together, auto-deletes tree
+        struct CloudTree {
+            PointCloud cloud;
+            KDTree* tree = nullptr;
+            CloudTree(const std::vector<double>& x, const std::vector<double>& y);
+            ~CloudTree();
+            CloudTree(const CloudTree&) = delete;
+            CloudTree& operator=(const CloudTree&) = delete;
+        };
+
         Eigen::MatrixXd rotation(double x, double y, double theta) const;
         void buildKDTree(const PointCloud& cloud, KDTree*& index) const;
         void knnSearch(KDTree* index, const PointCloud& cloud, double query_x, double query_y, int k, std::vector<double>& out_x, std::vector<double>& out_y) const;

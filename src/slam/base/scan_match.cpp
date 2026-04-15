@@ -26,34 +26,38 @@ namespace rcl_scan_match_type{
 }
 
 namespace rcl_scan_match{
+    ScanMatcher::CloudTree::CloudTree(const std::vector<double>& x, const std::vector<double>& y) {
+        cloud.pts.reserve(x.size());
+        for (size_t i = 0; i < x.size(); ++i) {
+            cloud.pts.push_back(Point{x[i], y[i]});
+        }
+        tree = new KDTree(2, cloud, nanoflann::KDTreeSingleIndexAdaptorParams(10));
+        tree->buildIndex();
+    }
+
+    ScanMatcher::CloudTree::~CloudTree() {
+        delete tree;
+    }
+
     double ScanMatcher::cal_rmse(
         std::vector<double>& curr_x, std::vector<double>& curr_y, 
         std::vector<double>& prev_x, std::vector<double>& prev_y, Param p) const
     {
         int N = std::min(prev_x.size(), curr_x.size());
-        PointCloud cloudB; // Target (current scan)
+        CloudTree ct(curr_x, curr_y);
         double rmse = 0;
-
-        for (int i = 0; i < N; ++i){
-            Point p;
-            p.x = curr_x[i]; p.y = curr_y[i];
-            cloudB.pts.push_back(p);
-        }
-        KDTree* kdTree = NULL;
-        buildKDTree(cloudB, kdTree);
 
         for(int i=0; i<N; i++){
             double x = std::cos(p.theta) * prev_x[i] - std::sin(p.theta) * prev_y[i] + p.tx;
             double y = std::sin(p.theta) * prev_x[i] + std::cos(p.theta) * prev_y[i] + p.ty;
 
             std::vector<double> nx, ny;
-            knnSearch(kdTree, cloudB, x, y, 1, nx, ny);
+            knnSearch(ct.tree, ct.cloud, x, y, 1, nx, ny);
 
             double dx = x - nx[0];
             double dy = y - ny[0];
             rmse += (dx * dx + dy * dy);
         }
-        delete kdTree;
 
         return std::sqrt(rmse / N);
     }
@@ -63,30 +67,21 @@ namespace rcl_scan_match{
         std::vector<double>& prev_x, std::vector<double>& prev_y, double error_cost, Param p) const
     {
         size_t N = std::min(prev_x.size(), curr_x.size());
-        PointCloud cloudB; // Target (current scan)
+        CloudTree ct(curr_x, curr_y);
         int count = 0;
-
-        for (size_t i = 0; i < N; ++i){
-            Point p;
-            p.x = curr_x[i]; p.y = curr_y[i];
-            cloudB.pts.push_back(p);
-        }
-        KDTree* kdTree = NULL;
-        buildKDTree(cloudB, kdTree);
 
         for(size_t i=0; i<N; i++){
             double x = std::cos(p.theta) * prev_x[i] - std::sin(p.theta) * prev_y[i] + p.tx;
             double y = std::sin(p.theta) * prev_x[i] + std::cos(p.theta) * prev_y[i] + p.ty;
 
             std::vector<double> nx, ny;
-            knnSearch(kdTree, cloudB, x, y, 1, nx, ny);
+            knnSearch(ct.tree, ct.cloud, x, y, 1, nx, ny);
 
             double dx = x - nx[0];
             double dy = y - ny[0];
             double distance = std::sqrt(dx * dx + dy * dy);
             if(distance <= error_cost) count++;
         }
-        delete kdTree;
 
         return ((double)count) / N;
     }
@@ -130,14 +125,7 @@ namespace rcl_scan_match{
     {
         int iter = 0;
         int N = std::min(prev_x.size(), curr_x.size());
-        PointCloud cloudB; // Target (current scan)
-        for (int i = 0; i < N; ++i){
-            Point p;
-            p.x = curr_x[i]; p.y = curr_y[i];
-            cloudB.pts.push_back(p);
-        }
-        KDTree* kdTree = NULL;
-        buildKDTree(cloudB, kdTree);
+        CloudTree ct(curr_x, curr_y);
 
         std::vector<double> A_x = prev_x; // Source (previous scan)
         std::vector<double> A_y = prev_y;
@@ -148,7 +136,7 @@ namespace rcl_scan_match{
             std::vector<double> B_x(N), B_y(N);
             for (int i = 0; i < N; ++i) {
                 std::vector<double> nx, ny;
-                knnSearch(kdTree, cloudB, A_x[i], A_y[i], k, nx, ny);
+                knnSearch(ct.tree, ct.cloud, A_x[i], A_y[i], k, nx, ny);
                 double mx = 0, my = 0;
                 for (int j = 0; j < k; ++j) {
                     mx += nx[j]; my += ny[j];
@@ -226,8 +214,6 @@ namespace rcl_scan_match{
         p.ty = T_total(1, 2);
         p.theta = (std::abs(theta) >= 0.5235983) ? 0 : theta;
 
-        delete kdTree;
-
         return p;
     }
 
@@ -239,14 +225,7 @@ namespace rcl_scan_match{
     {
         int iter = 0;
         int N = std::min(prev_x.size(), curr_x.size());
-        PointCloud cloudB; // Target (current scan)
-        for (int i = 0; i < N; ++i){
-            Point p;
-            p.x = curr_x[i]; p.y = curr_y[i];
-            cloudB.pts.push_back(p);
-        }
-        KDTree* kdTree = NULL;
-        buildKDTree(cloudB, kdTree);
+        CloudTree ct(curr_x, curr_y);
 
         for (iter = 0; iter < maxIter; ++iter) {
             Eigen::Matrix3d H = Eigen::Matrix3d::Zero();
@@ -260,7 +239,7 @@ namespace rcl_scan_match{
                 double y = sin_t * prev_x[i] + cos_t * prev_y[i] + ty;
 
                 nx.clear(); ny.clear();
-                knnSearch(kdTree, cloudB, x, y, k, nx, ny);
+                knnSearch(ct.tree, ct.cloud, x, y, k, nx, ny);
                 double mx = 0, my = 0;
                 for (int j = 0; j < k; ++j) {
                     mx += nx[j]; my += ny[j];
@@ -290,8 +269,6 @@ namespace rcl_scan_match{
         p.theta = theta;
         p.iter_count = iter;
 
-        delete kdTree;
-
         return p;
     }
 
@@ -304,14 +281,7 @@ namespace rcl_scan_match{
     {
         int iter = 0;
         int N = std::min(prev_x.size(), curr_x.size());
-        PointCloud cloudB; // Target (current scan)
-        for (int i = 0; i < N; ++i){
-            Point p;
-            p.x = curr_x[i]; p.y = curr_y[i];
-            cloudB.pts.push_back(p);
-        }
-        KDTree* kdTree = NULL;
-        buildKDTree(cloudB, kdTree);
+        CloudTree ct(curr_x, curr_y);
 
         for (iter = 0; iter < maxIter; ++iter) {
             Eigen::Matrix3d H = Eigen::Matrix3d::Zero();
@@ -325,7 +295,7 @@ namespace rcl_scan_match{
                 double y = sin_t * prev_x[i] + cos_t * prev_y[i] + ty;
 
                 nx.clear(); ny.clear();
-                knnSearch(kdTree, cloudB, x, y, k, nx, ny);
+                knnSearch(ct.tree, ct.cloud, x, y, k, nx, ny);
                 double mx = 0, my = 0;
                 for (int j = 0; j < k; ++j) {
                     mx += nx[j]; my += ny[j];
@@ -384,8 +354,6 @@ namespace rcl_scan_match{
         p.ty = ty;
         p.theta = theta;
         p.iter_count = iter;
-
-        delete kdTree;
 
         return p;
     }

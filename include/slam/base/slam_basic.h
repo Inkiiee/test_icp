@@ -1,6 +1,7 @@
 #ifndef __RCL_SLAM_BASIC_H__
 #define __RCL_SLAM_BASIC_H__
 
+#include <functional>
 #include <vector>
 #include "nanoflann.h"
 
@@ -27,6 +28,14 @@ namespace rcl_slam_basic_type{
     };
 
     typedef nanoflann::KDTreeSingleIndexAdaptor<nanoflann::L2_Simple_Adaptor<double, PointCloud>, PointCloud, 2> KDTree;
+
+    struct PairHash {
+        std::size_t operator()(const std::pair<int,int>& p) const noexcept {
+            auto h1 = std::hash<int>{}(p.first);
+            auto h2 = std::hash<int>{}(p.second);
+            return h1 ^ (h2 * 2654435761u);
+        }
+    };
 
     struct RobotBasePose{
         double tx, ty, theta;

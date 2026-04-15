@@ -11,6 +11,15 @@
 int map_size_x = 400;
 int map_size_y = 400;
 
+namespace {
+    std::pair<double, double> worldToPixel(double wx, double wy) {
+        constexpr double kMin = -16.0, kMax = 16.0;
+        double px = (wx - kMin) / (kMax - kMin) * map_size_x;
+        double py = (-wy - kMin) / (kMax - kMin) * map_size_y;
+        return {px, py};
+    }
+}
+
 namespace rcl_painter{
     using namespace rcl_pose_graph;
     using namespace rcl_map_backend;
@@ -43,10 +52,8 @@ namespace rcl_painter{
         pen.setWidth(1);
         painter.setPen(pen);
 
-        double min = -16, max = 16;
         for(size_t i=0; i<xs.size(); i++){
-            double mx = (xs[i] - min) / (max - min) * map_size_x;
-            double my = (-ys[i] - min) / (max - min) * map_size_y;
+            auto [mx, my] = worldToPixel(xs[i], ys[i]);
             painter.drawPoint(mx, my);
         }
         update();
@@ -58,7 +65,6 @@ namespace rcl_painter{
         pen.setWidth(1);
         painter.setPen(pen);
 
-        double min = -16, max = 16;
         std::vector<rcl_slam_basic_type::RobotBasePose> poses;
         if(shared_data_mutex){
             std::lock_guard<std::mutex> lock(*shared_data_mutex);
@@ -66,8 +72,7 @@ namespace rcl_painter{
             poses.assign(snapshot.begin(), snapshot.end());
         }
         for(const auto& p : poses){
-            double mx = (p.tx - min) / (max - min) * map_size_x;
-            double my = (-p.ty - min) / (max - min) * map_size_y;
+            auto [mx, my] = worldToPixel(p.tx, p.ty);
             painter.drawPoint(mx, my);
         }
 
@@ -80,8 +85,7 @@ namespace rcl_painter{
             double my = (arrow_y[i]) * pos_r * 3;
             double rx = std::cos(theta) * mx - std::sin(theta) * my + x;
             double ry = std::sin(theta) * mx + std::cos(theta) * my + y;
-            double px = (rx - min) / (max - min) * map_size_x;
-            double py = (-ry - min) / (max - min) * map_size_y;
+            auto [px, py] = worldToPixel(rx, ry);
             painter.drawPoint(px, py);
         }
         update();
@@ -94,7 +98,6 @@ namespace rcl_painter{
         pen.setWidth(1);
         painter.setPen(pen);
 
-        double min = -16, max = 16;
         std::vector<double> x, y;
         if(shared_data_mutex){
             std::lock_guard<std::mutex> lock(*shared_data_mutex);
@@ -103,8 +106,7 @@ namespace rcl_painter{
             world_map->getPos(x, y, true);
         }
         for(size_t i=0; i<x.size(); i++){
-            double mx = (x[i] - min) / (max - min) * map_size_x;
-            double my = (-y[i] - min) / (max - min) * map_size_y;
+            auto [mx, my] = worldToPixel(x[i], y[i]);
             painter.drawPoint(mx, my);
         }
         update();

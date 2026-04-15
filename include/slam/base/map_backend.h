@@ -9,13 +9,8 @@
 #include "slam_basic.h"
 
 namespace rcl_map_backend_type{
-    struct PairHash {
-        std::size_t operator()(const std::pair<int,int>& p) const noexcept {
-            auto h1 = std::hash<int>{}(p.first);
-            auto h2 = std::hash<int>{}(p.second);
-            return h1 ^ (h2 * 2654435761u);
-        }
-    };
+    using PairHash = rcl_slam_basic_type::PairHash;
+
     struct Weight{
         int hit_count;
         int miss_count;
