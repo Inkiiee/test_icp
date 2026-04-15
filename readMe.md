@@ -2,7 +2,7 @@
 
 ## 개요
 
-현재 소스는 ROS2에서 받은 라이다/오도메트리 데이터를 Qt 기반 UI와 연결해서, 
+현재 소스는 ROS2에서 받은 라이다/오도메트리/IMU 데이터를 Qt 기반 UI와 연결해서, 
 실시간 스캔 매칭 기반 위치 추정과 간단한 pose graph 최적화를 수행하는 2D SLAM 구조다.
 
 전체 흐름은 아래와 같다.
@@ -14,6 +14,181 @@
 5. loop edge가 누적되면 pose graph 최적화를 수행한다.
 6. 최적화 결과가 들어오면 world map을 다시 구성한다.
 7. `Painter`가 world map, 현재 scan, trajectory를 그린다.
+
+
+## 프로젝트 구조
+
+```
+test_icp/
+├── CMakeLists.txt
+├── package.xml
+├── readMe.md
+├── include/
+│   ├── bridge.h                          # ROS2 ↔ Qt 브리지
+│   ├── painter.h                         # Qt 시각화 위젯
+│   ├── nanoflann.h                       # 헤더온리 KDTree 라이브러리
+│   ├── slam/
+│   │   ├── slam.h                        # SlamSystem 오케스트레이터
+│   │   ├── scan_match_backend.h          # 온라인 스캔 매칭 + 맵 관리
+│   │   ├── loop_detecter.h               # 루프 클로저 탐지
+│   │   └── base/
+│   │       ├── slam_basic.h              # 공통 타입 (Point, PointCloud, PairHash, RobotBasePose)
+│   │       ├── scan_match.h              # ICP/NDT/CSM 스캔 매칭 알고리즘 + CloudTree 헬퍼
+│   │       ├── map_backend.h             # Occupancy grid map
+│   │       └── my_pose_graph.h           # Pose graph + 최적화
+│   └── test_icp/
+│       ├── ros_subscriber_node.hpp       # [신규] CRTP 기반 ROS 구독 노드 템플릿
+│       ├── sensor_receive_node.hpp       # LaserScan 수신 노드
+│       ├── odom_receive_node.hpp         # Odometry 수신 노드
+│       ├── imu_receive_node.hpp          # IMU 수신 노드
+│       └── teleopt.hpp                   # 키보드 텔레옵 + SharedMem
+└── src/
+    ├── main.cpp                          # 진입점: ROS2/Qt 초기화, 쓰레드 생성
+    ├── bridge.cpp                        # 센서 데이터 변환 + deskew
+    ├── painter.cpp                       # 시각화 렌더링 + worldToPixel 헬퍼
+    ├── slam/
+    │   ├── slam.cpp                      # 시스템 조립, signal-slot 연결, rebuildMap
+    │   ├── scan_match_backend.cpp        # lidarUpdate 파이프라인
+    │   ├── loop_detecter.cpp             # 루프 탐지 + 최적화 트리거
+    │   └── base/
+    │       ├── slam_basic.cpp            # 좌표 변환 유틸 (normalizeAngle 등)
+    │       ├── scan_match.cpp            # 매칭 알고리즘 구현 (CloudTree RAII 사용)
+    │       ├── map_backend.cpp           # occupancy map + Bresenham ray tracing
+    │       └── my_pose_graph.cpp         # g2o/fallback pose graph 최적화
+    └── test_icp/
+        ├── sensor_receive_node.cpp       # LaserScan 수신 → Bridge 전달
+        ├── odom_receive_node.cpp         # Odometry 수신 → Bridge 전달
+        ├── imu_receive_node.cpp          # IMU 수신 → Bridge 전달
+        └── teleopt.cpp                   # 키보드 입력 처리 + cmd_vel 퍼블리시
+```
+
+
+## 아키텍처 다이어그램
+
+### 전체 시스템 데이터 흐름
+
+```mermaid
+graph LR
+    subgraph ROS2 Nodes
+        LS[LaserScan]
+        OL[OdomLoader]
+        IL[ImuLoader]
+    end
+
+    subgraph Qt Threads
+        B[Bridge]
+        SMB[ScanMatchBackend]
+        LD[LoopDetecter]
+        SS[SlamSystem]
+        P[Painter]
+    end
+
+    LS -- /scan --> B
+    OL -- /odom --> B
+    IL -- /imu --> B
+
+    B -- scanDataReceived --> SMB
+    B -- odomDataReceived --> SMB
+
+    SMB -- predictedPose --> P
+    SMB -- scanUpdated --> P
+    SMB -- subMapUpdated --> LD
+    SMB -- rebuildMapRequested --> SS
+
+    LD -- optimizedPoseUpdated --> SMB
+    SS -- rebuildMap --> SMB
+```
+
+### 클래스 상속 구조
+
+```mermaid
+classDiagram
+    class RosSubscriberNode~MsgType, Derived~ {
+        #Node node_
+        #Subscription sub_
+        #CallbackGroup sub_cb_group_
+        #Bridge* bridge_
+        +RosSubscriberNode(Bridge*, string, string)
+    }
+
+    class LaserScan {
+        +received(LaserScan::UniquePtr)
+    }
+    class OdomLoader {
+        +received(Odometry::UniquePtr)
+    }
+    class ImuLoader {
+        +received(Imu::UniquePtr)
+    }
+
+    RosSubscriberNode <|-- LaserScan
+    RosSubscriberNode <|-- OdomLoader
+    RosSubscriberNode <|-- ImuLoader
+
+    class ScanMatcher {
+        -CloudTree
+        -buildKDTree()
+        -knnSearch()
+        +runICP()
+        +runGauseNewtonICP()
+        +runGauseNewtonICP2()
+        +runNDT()
+        +runCSM()
+    }
+
+    class CloudTree {
+        +PointCloud cloud
+        +KDTree* tree
+        +CloudTree(vector, vector)
+        +~CloudTree()
+    }
+
+    ScanMatcher *-- CloudTree
+```
+
+### 스캔 매칭 파이프라인 (lidarUpdate)
+
+```mermaid
+flowchart TD
+    A[scan 수신] --> B{이동량 충분?}
+    B -- No --> C[local_map에 누적만]
+    B -- Yes --> D[reference map 구성]
+    D --> E{CSM 필요?}
+    E -- Yes --> F[LUT 빌드 + CSM]
+    F --> G[NDT 정밀 보정]
+    E -- No --> G2[NDT만 수행]
+    G --> H{점프 제한}
+    G2 --> H
+    H --> I[pose 갱신]
+    I --> J[local_map 누적]
+    J --> K{submap 주기?}
+    K -- Yes --> L[submap 저장 + pose graph 갱신]
+    K -- No --> M[emit predictedPose]
+    L --> M
+```
+
+### 루프 클로저 + 최적화 파이프라인
+
+```mermaid
+flowchart TD
+    A[subMapUpdated] --> B{index 충분?}
+    B -- No --> Z[종료]
+    B -- Yes --> C[가까운 pose 후보 탐색]
+    C --> D{후보 있음?}
+    D -- No --> Z
+    D -- Yes --> E[거리순 정렬 + 상위 N개]
+    E --> F[초기 score 검증]
+    F -- 낮음 --> G[다음 후보]
+    F -- 통과 --> H[CSM + NDT 정밀 매칭]
+    H --> I{RMSE < 0.5 AND score > 0.3?}
+    I -- No --> G
+    I -- Yes --> J[loop edge 추가]
+    J --> K{누적 edge >= 2?}
+    K -- No --> Z
+    K -- Yes --> L[loopOptimize]
+    L --> M[delta 계산]
+    M --> N[emit optimizedPoseUpdated]
+```
 
 
 ## 주요 클래스 역할
@@ -350,3 +525,97 @@ g2o를 쓴다면 `LinearSolverCholmod` 또는 `LinearSolverCSparse`가 일반적
 
 구조는 이미 전체 파이프라인이 연결되어 있고,
 최근에는 concurrency 안정성과 pose graph fallback 성능이 일부 개선된 상태다.
+
+
+## 리팩토링 이력
+
+### 1. `PairHash` 통합
+
+**이전**: `map_backend.h`의 `PairHash`와 `scan_match.h`의 `CellIndexHash`가 동일한 해시 함수를 각각 정의.
+
+**이후**: `slam_basic.h`에 `PairHash`를 공통 정의로 이동. 양쪽 모두 `using` alias로 참조.
+
+```
+변경 전                         변경 후
+┌──────────────┐              ┌──────────────┐
+│ map_backend.h│ PairHash     │ slam_basic.h │ PairHash (공통 정의)
+├──────────────┤              ├──────────────┤
+│ scan_match.h │ CellIndexHash│ map_backend.h│ using PairHash = ...
+└──────────────┘              │ scan_match.h │ using CellIndexHash = ...
+                              └──────────────┘
+```
+
+### 2. ROS 구독 노드 템플릿 기반 클래스 (`RosSubscriberNode`)
+
+**이전**: `LaserScan`, `OdomLoader`, `ImuLoader` 3개 클래스가 각각 동일한 ROS2 구독 설정 보일러플레이트를 반복 (~85% 중복).
+
+**이후**: `RosSubscriberNode<MsgType, Derived>` CRTP 템플릿 기반 클래스로 공통화. 각 파생 클래스는 `received()` 메서드만 구현.
+
+```mermaid
+graph TD
+    subgraph 변경 전
+        A1[rclcpp::Node] --> B1[LaserScan<br/>구독 설정 + 콜백]
+        A1 --> C1[OdomLoader<br/>구독 설정 + 콜백]
+        A1 --> D1[ImuLoader<br/>구독 설정 + 콜백]
+    end
+
+    subgraph 변경 후
+        A2[rclcpp::Node] --> T[RosSubscriberNode<br/>공통 구독 설정]
+        T --> B2[LaserScan<br/>received만 구현]
+        T --> C2[OdomLoader<br/>received만 구현]
+        T --> D2[ImuLoader<br/>received만 구현]
+    end
+```
+
+**생성된 파일**: `include/test_icp/ros_subscriber_node.hpp`
+
+**변경된 파일**:
+- `include/test_icp/sensor_receive_node.hpp` — 상속 대상 변경, 중복 멤버 제거
+- `include/test_icp/odom_receive_node.hpp` — 동일
+- `include/test_icp/imu_receive_node.hpp` — 동일
+- `src/test_icp/sensor_receive_node.cpp` — 생성자 1줄로 축소, `bridge` → `bridge_`
+- `src/test_icp/odom_receive_node.cpp` — 동일
+- `src/test_icp/imu_receive_node.cpp` — 동일
+
+### 3. `CloudTree` RAII 헬퍼 (`ScanMatcher` 내부)
+
+**이전**: `cal_rmse`, `cal_inlier_ratio`, `runICP`, `runGauseNewtonICP`, `runGauseNewtonICP2` 5개 함수에서 `PointCloud` 생성 → `buildKDTree` → 사용 → `delete` 패턴이 반복. 수동 `delete`로 인한 메모리 누수 위험.
+
+**이후**: `CloudTree` 구조체가 생성자에서 `PointCloud` + `KDTree`를 함께 빌드하고, 소멸자에서 자동 해제.
+
+```mermaid
+graph LR
+    subgraph 변경 전
+        A[PointCloud 생성] --> B[buildKDTree]
+        B --> C[사용]
+        C --> D["delete kdTree ← 누락 위험"]
+    end
+
+    subgraph 변경 후
+        E["CloudTree ct(x, y)"] --> F[자동 빌드]
+        F --> G["ct.tree / ct.cloud 사용"]
+        G --> H["~CloudTree() 자동 해제"]
+    end
+```
+
+**변경된 파일**:
+- `include/slam/base/scan_match.h` — `CloudTree` 구조체 선언
+- `src/slam/base/scan_match.cpp` — 구현 + 5개 함수에서 수동 패턴 제거
+
+### 4. `worldToPixel` 헬퍼 (`Painter`)
+
+**이전**: `drawScan()`, `drawPose()`, `drawWorldMap()` 3곳에서 동일한 좌표 변환 계산이 반복.
+
+**이후**: `worldToPixel(wx, wy)` 익명 네임스페이스 함수로 추출.
+
+**변경된 파일**: `src/painter.cpp`
+
+### 리팩토링 요약 표
+
+| 항목 | 제거된 중복 | 영향 파일 수 | 비고 |
+|------|-----------|------------|------|
+| `PairHash` 통합 | ~12줄 | 3 | `slam_basic.h`, `map_backend.h`, `scan_match.h` |
+| `RosSubscriberNode` | ~80줄 | 7 | CRTP 템플릿 + 3 헤더 + 3 소스 |
+| `CloudTree` RAII | ~50줄 | 2 | 메모리 누수 위험 해소 |
+| `worldToPixel` | ~12줄 | 1 | 좌표 변환 상수 중앙화 |
+| **합계** | **~150줄** | **11** | |
