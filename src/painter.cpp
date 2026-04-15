@@ -76,6 +76,9 @@ namespace rcl_painter{
             painter.drawPoint(mx, my);
         }
 
+        pen.setColor(Qt::blue);
+        pen.setWidth(2);
+        painter.setPen(pen);
         // 현재 위치 강조
         static std::vector<double> arrow_x{-2, -1, 0, 1, 2, 2, 2,  2,  2, 3, 3,  3, 4};
         static std::vector<double> arrow_y{ 0,  0, 0, 0, 2, 1, 0, -1, -2, 1, 0, -1, 0};

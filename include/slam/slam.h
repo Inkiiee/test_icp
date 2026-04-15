@@ -8,6 +8,8 @@
 
 #include <QObject>
 
+class SharedMem;
+
 namespace rcl_slam{
     class SlamSystem: public QObject{
         Q_OBJECT
@@ -21,6 +23,8 @@ namespace rcl_slam{
     public:
         SlamSystem(Bridge* b, double r=0.05,QObject* parent=nullptr);
         ~SlamSystem();
+
+        void setSharedMem(SharedMem* sm);
     
     public Q_SLOTS:
         void rebuildMap();

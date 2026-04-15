@@ -64,6 +64,7 @@ int main(int argc, char *argv[])
             rclcpp::spin_some(myTelNode);
         }
     });
+    slam_system->setSharedMem(sharedMemPtr.get());
 
     int ret = app.exec();
 

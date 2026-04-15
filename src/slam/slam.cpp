@@ -139,4 +139,8 @@ namespace rcl_slam{
                  << " snapshot=" << us_snap << "us transform=" << us_xform
                  << "us mapUpdate=" << us_map << "us total=" << us_total << "us (" << us_total / 1000 << "ms)";
     }
+
+    void SlamSystem::setSharedMem(SharedMem* sm){
+        painter->setSharedMem(sm);
+    }
 }
