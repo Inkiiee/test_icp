@@ -288,7 +288,7 @@ namespace rcl_scan_match_backend{
         pixel_y.assign(latest_ys.begin(), latest_ys.end());
         rotationAndTranslation(map_x, map_y, map_theta, pixel_x, pixel_y);
 
-        local_map.updateOccupancyMap(map_x, map_y, pixel_x, pixel_y, true);
+        local_map.updateOccupancyMap(map_x, map_y, pixel_x, pixel_y);
 
         last_match_x_ = map_x;
         last_match_y_ = map_y;
