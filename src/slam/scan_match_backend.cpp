@@ -207,7 +207,7 @@ namespace rcl_scan_match_backend{
         auto t_submap = std::chrono::steady_clock::now();
         match_ref_map_.clearMap();
         std::vector<double> pixel_x, pixel_y, world_x, world_y;
-        local_map.getPos(world_x, world_y);
+        local_map.getPos(world_x, world_y, true);
         match_ref_map_.addPos(world_x, world_y);
 
         // world_map ref 캐시: 맵 변경 또는 0.5m 이상 이동 시에만 재계산
@@ -288,7 +288,7 @@ namespace rcl_scan_match_backend{
         pixel_y.assign(latest_ys.begin(), latest_ys.end());
         rotationAndTranslation(map_x, map_y, map_theta, pixel_x, pixel_y);
 
-        local_map.addPos(pixel_x, pixel_y);
+        local_map.updateOccupancyMap(map_x, map_y, pixel_x, pixel_y, true);
 
         last_match_x_ = map_x;
         last_match_y_ = map_y;
