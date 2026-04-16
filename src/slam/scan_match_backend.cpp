@@ -138,20 +138,20 @@ namespace rcl_scan_match_backend{
         double travel_theta = std::abs(normalizeAngle(map_theta - last_match_theta_));
         bool moved_enough = (travel_xy >= kMinTravelDistance || travel_theta >= kMinTravelAngle);
 
-        if(!moved_enough){
-            std::vector<double> pixel_x(latest_xs.begin(), latest_xs.end()), pixel_y(latest_ys.begin(), latest_ys.end());
-            rotationAndTranslation(map_x, map_y, map_theta, pixel_x, pixel_y);
-            local_map.addPos(pixel_x, pixel_y);
-            emit scanUpdated(pixel_x, pixel_y);
-            emit predictedPose(map_x, map_y, map_theta);
-            if(ros_pub_) ros_pub_->publishPoseAndTF(map_x, map_y, map_theta, odom_x, odom_y, odom_theta);
-            processing_busy_ = false;
-            return;
-        }
+        // if(!moved_enough){
+        //     std::vector<double> pixel_x(latest_xs.begin(), latest_xs.end()), pixel_y(latest_ys.begin(), latest_ys.end());
+        //     rotationAndTranslation(map_x, map_y, map_theta, pixel_x, pixel_y);
+        //     local_map.updateOccupancyMap(map_x, map_y, pixel_x, pixel_y);
+        //     emit scanUpdated(pixel_x, pixel_y);
+        //     emit predictedPose(map_x, map_y, map_theta);
+        //     if(ros_pub_) ros_pub_->publishPoseAndTF(map_x, map_y, map_theta, odom_x, odom_y, odom_theta);
+        //     processing_busy_ = false;
+        //     return;
+        // }
 
-        if(frame_index++ % 10 == 0){
+        if(moved_enough){
             rcl_map_backend_type::sub_map sm;
-            local_map.getPos(sm.x, sm.y);
+            local_map.getPos(sm.x, sm.y, true);  // static_only: hit 비율 높은 셀만
 
             RobotBasePose currentPose{map_x, map_y, map_theta};
             // 로컬 좌표계에서의 센서 원점 (로컬 기준이므로 0,0)

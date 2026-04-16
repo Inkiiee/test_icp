@@ -46,7 +46,7 @@ namespace rcl_map_backend{
         int y1 = target.second;
 
         constexpr int kMaxMiss = 20;
-        constexpr int kOccupiedThreshold = 3; // hit이 이 이상이면 이미 장애물 → miss 안 찍음
+        constexpr int kOccupiedThreshold = 5; // hit이 이 이상이면 이미 장애물 → miss 안 찍음
 
         int dx = std::abs(x1 - x0);
         int dy = std::abs(y1 - y0);
@@ -103,10 +103,10 @@ namespace rcl_map_backend{
 
     bool MapBackend::isStaticCell(const Weight& weight) const{
         int total = weight.hit_count + weight.miss_count;
-        if(total == 0) return false;
+        if(total < 2) return false;  // 최소 2회 이상 관측된 셀만
 
         double occupied_ratio = static_cast<double>(weight.hit_count) / total;
-        return occupied_ratio >= 0.55;
+        return occupied_ratio >= 0.6;
     }
 
     void MapBackend::getPos(std::vector<double>& x, std::vector<double>& y, bool static_only){
