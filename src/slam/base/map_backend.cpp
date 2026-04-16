@@ -300,4 +300,50 @@ namespace rcl_map_backend{
     void MapBackend::incrementFrameIndex(){
         frame_index++;
     }
+
+    void MapBackend::getOccupancyGridData(std::vector<int8_t>& data, int& width, int& height,
+                                          double& origin_x, double& origin_y) const
+    {
+        if(wm.empty()){
+            data.clear();
+            width = height = 0;
+            origin_x = origin_y = 0;
+            return;
+        }
+
+        // 셀 인덱스 범위 계산
+        auto it = wm.begin();
+        int min_gx = it->first.first, max_gx = min_gx;
+        int min_gy = it->first.second, max_gy = min_gy;
+        for(; it != wm.end(); ++it){
+            min_gx = std::min(min_gx, it->first.first);
+            max_gx = std::max(max_gx, it->first.first);
+            min_gy = std::min(min_gy, it->first.second);
+            max_gy = std::max(max_gy, it->first.second);
+        }
+
+        width = max_gx - min_gx + 1;
+        height = max_gy - min_gy + 1;
+        origin_x = min_gx * pos_r;
+        origin_y = min_gy * pos_r;
+
+        data.assign(static_cast<size_t>(width) * height, -1);
+
+        for(const auto& entry : wm){
+            int lx = entry.first.first - min_gx;
+            int ly = entry.first.second - min_gy;
+            size_t idx = static_cast<size_t>(ly) * width + lx;
+
+            const Weight& w = entry.second;
+            int total = w.hit_count + w.miss_count;
+            if(total == 0) continue;
+
+            double occ_ratio = static_cast<double>(w.hit_count) / total;
+            if(occ_ratio >= 0.55){
+                data[idx] = 100;  // occupied
+            } else {
+                data[idx] = 0;    // free
+            }
+        }
+    }
 }

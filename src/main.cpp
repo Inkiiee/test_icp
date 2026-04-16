@@ -10,6 +10,7 @@
 #include "sensor_receive_node.hpp"
 #include "odom_receive_node.hpp"
 #include "teleopt.hpp"
+#include "ros_publisher_node.hpp"
 
 bool is_end = false;
 
@@ -36,7 +37,8 @@ int main(int argc, char *argv[])
     std::signal(SIGINT, signal_handler);
 
     Bridge bridge;
-    auto slam_system = std::make_unique<rcl_slam::SlamSystem>(&bridge);
+    auto ros_pub = std::make_shared<RosPublisherNode>();
+    auto slam_system = std::make_unique<rcl_slam::SlamSystem>(&bridge, ros_pub);
 
     //rcl 루프 실행 및 브리지 등록
     auto receiver = std::make_shared<LaserScan>(&bridge, "my_laser_scan_node");
@@ -47,11 +49,12 @@ int main(int argc, char *argv[])
     auto keyInputMon = std::make_shared<KeyInputMon>(sharedMemPtr);
     auto myTelNode = std::make_shared<MyTelNode>(sharedMemPtr);
 
-    std::thread t1([odomLoader, receiver, imuLoader](){
+    std::thread t1([odomLoader, receiver, imuLoader, ros_pub](){
         while(!is_end){
             rclcpp::spin_some(imuLoader);
             rclcpp::spin_some(odomLoader);
             rclcpp::spin_some(receiver);
+            rclcpp::spin_some(ros_pub);
         }
     });
 

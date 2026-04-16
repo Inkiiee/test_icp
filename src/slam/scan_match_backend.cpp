@@ -1,6 +1,7 @@
 #include "scan_match_backend.h"
 #include "slam_basic.h"
 #include "my_pose_graph.h"
+#include "ros_publisher_node.hpp"
 
 #include <cmath>
 #include <chrono>
@@ -23,6 +24,10 @@ namespace rcl_scan_match_backend{
         // QObject::connect(bridge, &Bridge::imuHeadingReceived, this, &ScanMatchBackend::imuUpdate, Qt::ConnectionType::QueuedConnection);
     }
     ScanMatchBackend::~ScanMatchBackend(){}
+
+    void ScanMatchBackend::setRosPublisher(std::shared_ptr<RosPublisherNode> pub){
+        ros_pub_ = pub;
+    }
 
     std::vector<sub_map>* ScanMatchBackend::getSubMaps(){
         return &sub_maps;
@@ -139,6 +144,7 @@ namespace rcl_scan_match_backend{
             local_map.addPos(pixel_x, pixel_y);
             emit scanUpdated(pixel_x, pixel_y);
             emit predictedPose(map_x, map_y, map_theta);
+            if(ros_pub_) ros_pub_->publishPoseAndTF(map_x, map_y, map_theta, odom_x, odom_y, odom_theta);
             processing_busy_ = false;
             return;
         }
@@ -181,6 +187,20 @@ namespace rcl_scan_match_backend{
             qDebug()<<"Odom "<<preciouse(odom_x, 3)<<" "<<preciouse(odom_y, 3)<<" "<<preciouse(odom_theta, 3);
 
             emit subMapUpdated(current_index);
+
+            // 서브맵 생성 시 ROS2 맵 퍼블리시 (내부 throttle 적용)
+            if(ros_pub_){
+                std::vector<int8_t> grid_data;
+                int gw = 0, gh = 0;
+                double ox = 0, oy = 0;
+                {
+                    std::lock_guard<std::mutex> lock(shared_data_mutex_);
+                    world_map.getOccupancyGridData(grid_data, gw, gh, ox, oy);
+                }
+                if(gw > 0 && gh > 0){
+                    ros_pub_->publishMap(grid_data, gw, gh, ox, oy, world_map.getResolution());
+                }
+            }
         }
 
         // 매칭 대상: local_map + world_map에서 로봇 근처 다운샘플된 포인트
@@ -283,6 +303,7 @@ namespace rcl_scan_match_backend{
 
         emit scanUpdated(pixel_x, pixel_y);
         emit predictedPose(map_x, map_y, map_theta);
+        if(ros_pub_) ros_pub_->publishPoseAndTF(map_x, map_y, map_theta, odom_x, odom_y, odom_theta);
 
         processing_busy_ = false;
     }
