@@ -33,8 +33,8 @@ namespace rcl_map_backend{
             if(w.hit_count == 0 && w.miss_count == 0){
                 w.x = index.first * pos_r;
                 w.y = index.second * pos_r;
+                w.hit_count += 1;
             }
-            w.hit_count += 1;
             w.last_seen_frame = frame_index;
         }
     }
@@ -103,10 +103,10 @@ namespace rcl_map_backend{
 
     bool MapBackend::isStaticCell(const Weight& weight) const{
         int total = weight.hit_count + weight.miss_count;
-        if(total < 2) return false;  // 최소 2회 이상 관측된 셀만
+        if(total < 3) return false;  // 최소 3회 이상 관측된 셀만
 
         double occupied_ratio = static_cast<double>(weight.hit_count) / total;
-        return occupied_ratio >= 0.6;
+        return occupied_ratio >= 0.7;
     }
 
     void MapBackend::getPos(std::vector<double>& x, std::vector<double>& y, bool static_only){
