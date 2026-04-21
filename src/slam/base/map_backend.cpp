@@ -339,7 +339,7 @@ namespace rcl_map_backend{
             if(total == 0) continue;
 
             double occ_ratio = static_cast<double>(w.hit_count) / total;
-            if(occ_ratio >= 0.55){
+            if(occ_ratio >= 0.80 && total >= 5){
                 data[idx] = 100;  // occupied
             } else {
                 data[idx] = 0;    // free
